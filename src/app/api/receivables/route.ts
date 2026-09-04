@@ -1,0 +1,92 @@
+import { NextResponse } from "next/server";
+import { getPool } from "@/lib/db";
+import { uuidPattern } from "@/lib/registries";
+
+export async function GET() {
+  const pool = getPool();
+  if (!pool) return NextResponse.json({ error: "Banco não configurado." }, { status: 503 });
+  try {
+    const [receivables, customers, orders] = await Promise.all([
+      pool.query(`
+        SELECT r.id::text, r.work_order_id::text, o.order_number, r.customer_id::text,
+               COALESCE(r.customer_name, o.customer_name) AS customer_name,
+               r.due_date::text, r.payment_date::text, r.amount, r.notes,
+               o.payment_method,
+               CASE WHEN upper(COALESCE(r.status, '')) LIKE '%CANC%' THEN 'CANCELADO'
+                    WHEN r.payment_date IS NOT NULL OR upper(COALESCE(r.status, '')) IN ('PAGO','RECEBIDO','QUITADO') THEN 'PAGO'
+                    WHEN r.due_date < CURRENT_DATE THEN 'VENCIDO'
+                    ELSE 'PENDENTE' END AS display_status
+        FROM app_live.receivables r
+        LEFT JOIN app_live.work_orders o ON o.id = r.work_order_id
+        ORDER BY COALESCE(r.payment_date, r.due_date) DESC NULLS LAST, r.created_at DESC
+        LIMIT 1500`),
+      pool.query(`SELECT id::text, name FROM app_live.customers ORDER BY name`),
+      pool.query(`SELECT id::text, order_number, customer_id::text, customer_name, total_value FROM app_live.work_orders WHERE status IN ('PEDIDO','VENDA_REALIZADA') ORDER BY COALESCE(sale_date,budget_date) DESC NULLS LAST LIMIT 500`),
+    ]);
+    return NextResponse.json({
+      receivables: receivables.rows.map((row) => ({
+        id: row.id, workOrderId: row.work_order_id, orderNumber: row.order_number,
+        customerId: row.customer_id, customerName: row.customer_name, dueDate: row.due_date,
+        paymentDate: row.payment_date, amount: Number(row.amount), status: row.display_status,
+        paymentMethod: row.payment_method, notes: row.notes,
+      })),
+      customers: customers.rows,
+      orders: orders.rows.map((row) => ({ id: row.id, number: row.order_number, customerId: row.customer_id, customerName: row.customer_name, total: Number(row.total_value) })),
+    });
+  } catch (error) {
+    console.error("Falha ao carregar contas a receber", error);
+    return NextResponse.json({ error: "Não foi possível carregar as contas a receber." }, { status: 500 });
+  }
+}
+
+export async function POST(request: Request) {
+  const pool = getPool();
+  if (!pool) return NextResponse.json({ error: "Banco não configurado." }, { status: 503 });
+  let body: Record<string, unknown>;
+  try { body = await request.json() as Record<string, unknown>; }
+  catch { return NextResponse.json({ error: "Dados inválidos." }, { status: 400 }); }
+
+  const workOrderId = typeof body.workOrderId === "string" && uuidPattern.test(body.workOrderId) ? body.workOrderId : null;
+  let customerId = typeof body.customerId === "string" && uuidPattern.test(body.customerId) ? body.customerId : null;
+  let customerName = typeof body.customerName === "string" ? body.customerName.trim() : "";
+  let amount = Math.round(Math.max(0, Number(body.amount) || 0) * 100) / 100;
+  const dueDate = typeof body.dueDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.dueDate) ? body.dueDate : null;
+  if (!dueDate) return NextResponse.json({ error: "Informe o vencimento." }, { status: 400 });
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    if (workOrderId) {
+      const order = await client.query(`SELECT customer_id::text, customer_name, total_value FROM app_live.work_orders WHERE id=$1::uuid`, [workOrderId]);
+      if (!order.rowCount) throw new Error("ORDER_NOT_FOUND");
+      customerId = order.rows[0].customer_id;
+      customerName = order.rows[0].customer_name;
+      if (!amount) amount = Number(order.rows[0].total_value);
+    } else if (customerId) {
+      const customer = await client.query(`SELECT name FROM app_live.customers WHERE id=$1::uuid`, [customerId]);
+      if (!customer.rowCount) throw new Error("CUSTOMER_NOT_FOUND");
+      customerName = customer.rows[0].name;
+    }
+    if (!customerName) throw new Error("CUSTOMER_REQUIRED");
+    if (amount <= 0) throw new Error("AMOUNT_REQUIRED");
+
+    const inserted = await client.query(
+      `INSERT INTO app_live.receivables (work_order_id, customer_id, customer_name, due_date, amount, status, notes)
+       VALUES ($1::uuid, $2::uuid, $3, $4::date, $5, 'PENDENTE', $6)
+       RETURNING id::text`,
+      [workOrderId, customerId, customerName, dueDate, amount, typeof body.notes === "string" ? body.notes.trim() || null : null],
+    );
+    await client.query(
+      `INSERT INTO app_live.audit_log (entity_type, entity_id, action, details) VALUES ('receivable', $1::uuid, 'created', $2::jsonb)`,
+      [inserted.rows[0].id, JSON.stringify({ customerName, amount, dueDate, workOrderId })],
+    );
+    await client.query("COMMIT");
+    return NextResponse.json({ id: inserted.rows[0].id }, { status: 201 });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Falha ao criar conta a receber", error);
+    const messages: Record<string, string> = { ORDER_NOT_FOUND: "Ordem não encontrada.", CUSTOMER_NOT_FOUND: "Cliente não encontrado.", CUSTOMER_REQUIRED: "Informe o cliente.", AMOUNT_REQUIRED: "Informe um valor maior que zero." };
+    const message = error instanceof Error ? messages[error.message] : undefined;
+    return NextResponse.json({ error: message ?? "Não foi possível criar a cobrança." }, { status: message ? 400 : 500 });
+  } finally { client.release(); }
+}

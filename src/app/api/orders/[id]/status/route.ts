@@ -18,7 +18,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   try {
     await client.query("BEGIN");
     const current = await client.query(
-      `SELECT status, customer_name FROM app_live.work_orders WHERE id = $1::uuid FOR UPDATE`,
+      `SELECT status, customer_id, customer_name, total_value FROM app_live.work_orders WHERE id = $1::uuid FOR UPDATE`,
       [id],
     );
     if (!current.rowCount) {
@@ -57,6 +57,28 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
           [item.product_id, enteringSale ? "VENDA" : "ESTORNO_VENDA", quantity, current.rows[0].customer_name, newStock],
         );
       }
+    }
+
+    if (enteringSale) {
+      const reactivated = await client.query(
+        `UPDATE app_live.receivables SET status='PENDENTE', due_date=COALESCE(due_date,CURRENT_DATE)
+         WHERE work_order_id=$1::uuid AND payment_date IS NULL AND upper(COALESCE(status,'')) LIKE '%CANC%'`,
+        [id],
+      );
+      if (!reactivated.rowCount) {
+        await client.query(
+          `INSERT INTO app_live.receivables (work_order_id, customer_id, customer_name, due_date, amount, status, notes)
+           SELECT $1::uuid, $2::uuid, $3, CURRENT_DATE, $4, 'PENDENTE', 'Gerado automaticamente na conclusão da venda'
+           WHERE NOT EXISTS (SELECT 1 FROM app_live.receivables WHERE work_order_id=$1::uuid)`,
+          [id, current.rows[0].customer_id, current.rows[0].customer_name, current.rows[0].total_value],
+        );
+      }
+    } else if (leavingSale) {
+      await client.query(
+        `UPDATE app_live.receivables SET status='CANCELADO'
+         WHERE work_order_id=$1::uuid AND payment_date IS NULL`,
+        [id],
+      );
     }
 
     const updated = await client.query(

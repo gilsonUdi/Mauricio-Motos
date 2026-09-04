@@ -1,7 +1,9 @@
 import Link from "next/link";
 import {
   Bike,
+  BadgeCheck,
   Boxes,
+  ChartNoAxesCombined,
   CircleDollarSign,
   ClipboardList,
   LayoutDashboard,
@@ -16,7 +18,9 @@ const entries = [
   { id: "atendimento", label: "Atendimento", icon: LayoutDashboard, href: "/" },
   { id: "orcamentos", label: "Orçamentos", icon: ClipboardList },
   { id: "compras", label: "Compras", icon: PackageSearch, href: "/compras" },
-  { id: "receber", label: "Contas a receber", icon: CircleDollarSign },
+  { id: "receber", label: "Contas a receber", icon: CircleDollarSign, href: "/receber" },
+  { id: "conferencia", label: "Conferência", icon: BadgeCheck, href: "/conferencia" },
+  { id: "financeiro", label: "Financeiro", icon: ChartNoAxesCombined, href: "/financeiro" },
   { id: "estoque", label: "Estoque", icon: Boxes, href: "/estoque" },
   { id: "clientes", label: "Clientes", icon: Users, href: "/clientes" },
   { id: "veiculos", label: "Veículos", icon: Bike, href: "/veiculos" },
