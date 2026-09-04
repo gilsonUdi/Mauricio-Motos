@@ -17,6 +17,48 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    const current = await client.query(
+      `SELECT status, customer_name FROM app_live.work_orders WHERE id = $1::uuid FOR UPDATE`,
+      [id],
+    );
+    if (!current.rowCount) {
+      await client.query("ROLLBACK");
+      return NextResponse.json({ error: "Ordem não encontrada." }, { status: 404 });
+    }
+
+    const previousStatus = current.rows[0].status as OrderStatus;
+    const enteringSale = previousStatus !== "VENDA_REALIZADA" && body.status === "VENDA_REALIZADA";
+    const leavingSale = previousStatus === "VENDA_REALIZADA" && body.status !== "VENDA_REALIZADA";
+    if (enteringSale || leavingSale) {
+      const items = await client.query(
+        `SELECT i.product_id::text, p.name, SUM(i.quantity) AS quantity
+         FROM app_live.work_order_items i
+         JOIN app_live.products p ON p.id = i.product_id
+         WHERE i.work_order_id = $1::uuid
+           AND lower(concat_ws(' ', i.item_type, p.type)) NOT LIKE '%serv%'
+         GROUP BY i.product_id, p.name
+         ORDER BY i.product_id`,
+        [id],
+      );
+      for (const item of items.rows) {
+        const product = await client.query(
+          `SELECT COALESCE(current_stock, 0) AS stock FROM app_live.products WHERE id = $1::uuid FOR UPDATE`,
+          [item.product_id],
+        );
+        const oldStock = Number(product.rows[0].stock);
+        const quantity = Number(item.quantity);
+        const newStock = enteringSale ? oldStock - quantity : oldStock + quantity;
+        if (newStock < 0) throw new Error(`INSUFFICIENT_STOCK:${item.name}`);
+        await client.query(`UPDATE app_live.products SET current_stock = $2 WHERE id = $1::uuid`, [item.product_id, newStock]);
+        await client.query(
+          `INSERT INTO app_live.inventory_movements
+           (product_id, movement_date, movement_type, quantity, party_name, balance_after)
+           VALUES ($1::uuid, CURRENT_DATE, $2, $3, $4, $5)`,
+          [item.product_id, enteringSale ? "VENDA" : "ESTORNO_VENDA", quantity, current.rows[0].customer_name, newStock],
+        );
+      }
+    }
+
     const updated = await client.query(
       `UPDATE app_live.work_orders
        SET status = $2,
@@ -44,6 +86,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   } catch (error) {
     await client.query("ROLLBACK");
     console.error(error);
+    if (error instanceof Error && error.message.startsWith("INSUFFICIENT_STOCK:")) {
+      return NextResponse.json({ error: `Estoque insuficiente para ${error.message.slice("INSUFFICIENT_STOCK:".length)}.` }, { status: 409 });
+    }
     return NextResponse.json({ error: "Não foi possível atualizar a ordem." }, { status: 500 });
   } finally {
     client.release();

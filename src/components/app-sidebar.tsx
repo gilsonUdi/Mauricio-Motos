@@ -15,9 +15,9 @@ import {
 const entries = [
   { id: "atendimento", label: "Atendimento", icon: LayoutDashboard, href: "/" },
   { id: "orcamentos", label: "Orçamentos", icon: ClipboardList },
-  { id: "compras", label: "Compras", icon: PackageSearch },
+  { id: "compras", label: "Compras", icon: PackageSearch, href: "/compras" },
   { id: "receber", label: "Contas a receber", icon: CircleDollarSign },
-  { id: "estoque", label: "Estoque", icon: Boxes },
+  { id: "estoque", label: "Estoque", icon: Boxes, href: "/estoque" },
   { id: "clientes", label: "Clientes", icon: Users, href: "/clientes" },
   { id: "veiculos", label: "Veículos", icon: Bike, href: "/veiculos" },
   { id: "produtos", label: "Produtos e serviços", icon: Wrench, href: "/produtos" },

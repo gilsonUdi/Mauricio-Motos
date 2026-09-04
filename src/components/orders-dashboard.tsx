@@ -76,7 +76,8 @@ export function OrdersDashboard({ initialData }: { initialData: DashboardData })
       body: JSON.stringify({ status }),
     });
     if (!response.ok) {
-      setNotice("Não foi possível atualizar a ordem.");
+      const payload = await response.json().catch(() => null);
+      setNotice(payload?.error ?? "Não foi possível atualizar a ordem.");
       return;
     }
     setOrders((current) => current.map((order) => order.id === selected.id ? { ...order, status } : order));
