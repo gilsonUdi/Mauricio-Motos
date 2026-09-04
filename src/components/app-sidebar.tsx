@@ -1,3 +1,4 @@
+"use client";
 import Link from "next/link";
 import {
   Bike,
@@ -7,14 +8,17 @@ import {
   CircleDollarSign,
   ClipboardList,
   LayoutDashboard,
+  LogOut,
   PackageSearch,
   Settings,
   Users,
   UserRoundCog,
   Wrench,
 } from "lucide-react";
+import { useAuth } from "@/components/auth-context";
+import type { Permission } from "@/lib/auth-shared";
 
-const entries = [
+const entries: Array<{ id: Permission | "orcamentos"; label: string; icon: typeof Bike; href?: string }> = [
   { id: "atendimento", label: "Atendimento", icon: LayoutDashboard, href: "/" },
   { id: "orcamentos", label: "Orçamentos", icon: ClipboardList },
   { id: "compras", label: "Compras", icon: PackageSearch, href: "/compras" },
@@ -29,11 +33,14 @@ const entries = [
 ];
 
 export function AppSidebar({ active }: { active: string }) {
+  const { enabled, user } = useAuth();
+  const visibleEntries = entries.filter((entry) => entry.id === "orcamentos" || !enabled || user?.role === "ADMIN" || user?.permissions.includes(entry.id));
+  async function logout() { await fetch("/api/auth/logout", { method: "POST" }); window.location.assign("/login"); }
   return (
     <aside className="sidebar">
       <Link className="brand-mark" href="/" aria-label="Início"><Wrench size={22} /><span>MM</span></Link>
       <nav aria-label="Navegação principal">
-        {entries.map(({ id, label, icon: Icon, href }) => href ? (
+        {visibleEntries.map(({ id, label, icon: Icon, href }) => href ? (
           <Link className={`nav-button ${active === id ? "active" : ""}`} href={href} key={id} title={label}>
             <Icon size={20} /><span>{label}</span>
           </Link>
@@ -43,7 +50,7 @@ export function AppSidebar({ active }: { active: string }) {
           </button>
         ))}
       </nav>
-      <button className="nav-button settings" title="Configurações — em breve" disabled><Settings size={20} /><span>Configurações</span></button>
+      <div className="sidebar-bottom">{(!enabled || user?.role === "ADMIN") && <Link className={`nav-button ${active === "usuarios" ? "active" : ""}`} href="/usuarios" title="Usuários"><Settings size={20} /><span>Usuários</span></Link>}{enabled && user && <button className="nav-button" title={`Sair de ${user.name}`} onClick={logout}><LogOut size={20} /><span>Sair</span></button>}</div>
     </aside>
   );
 }

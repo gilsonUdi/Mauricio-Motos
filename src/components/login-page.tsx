@@ -1,0 +1,9 @@
+"use client";
+import { LoaderCircle, LockKeyhole, LogIn, Wrench } from "lucide-react";
+import { FormEvent, useState } from "react";
+
+export function LoginPage({ returnTo }: { returnTo: string }) {
+  const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [error, setError] = useState(""); const [loading, setLoading] = useState(false);
+  async function login(event: FormEvent) { event.preventDefault(); setLoading(true); setError(""); try { const response = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error ?? "Não foi possível entrar."); window.location.assign(returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : "/"); } catch (caught) { setError(caught instanceof Error ? caught.message : "Não foi possível entrar."); setLoading(false); } }
+  return <main className="login-screen"><section className="login-card"><div className="login-brand"><span><Wrench /></span><div><p>MAURÍCIO MOTOS</p><h1>Gestão da oficina</h1></div></div><div className="login-heading"><LockKeyhole /><div><h2>Acesse sua conta</h2><p>Use seu e-mail e senha para continuar.</p></div></div><form onSubmit={login}><label className="field"><span>E-mail</span><input type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} required autoFocus /></label><label className="field"><span>Senha</span><input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>{error && <p className="form-error">{error}</p>}<button className="primary-button login-button" disabled={loading}>{loading ? <LoaderCircle className="spin" /> : <LogIn />}{loading ? "Entrando..." : "Entrar"}</button></form></section></main>;
+}

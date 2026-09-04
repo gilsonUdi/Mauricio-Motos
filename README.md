@@ -19,3 +19,4 @@ Sem `DATABASE_URL`, a aplicação abre em modo de demonstração. Em produção,
 - `app_live`: modelo canônico utilizado pelo novo site.
 
 Execute `db/migrations/001_app_live.sql` uma única vez no banco `mauricio_motos` antes de conectar a aplicação.
+Para ativar o login, configure `AUTH_SECRET`, `AUTH_ADMIN_EMAIL`, `AUTH_ADMIN_PASSWORD` e, opcionalmente, `AUTH_ADMIN_NAME`. Na primeira autenticação, o sistema cria as tabelas de acesso e o administrador inicial; a mesma estrutura também está documentada em `db/migrations/002_auth.sql`.
