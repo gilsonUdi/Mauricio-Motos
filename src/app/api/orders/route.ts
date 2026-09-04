@@ -157,11 +157,11 @@ export async function POST(request: Request) {
       const inserted = await client.query(
         `INSERT INTO app_live.work_order_items (work_order_id, product_id, item_name, item_type, quantity, unit_price)
          VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6)
-         RETURNING id::text, item_name, item_type, quantity, unit_price, total_value`,
+         RETURNING id::text, product_id::text, item_name, item_type, quantity, unit_price, total_value`,
         [orderId, item.productId ?? null, item.name, item.type, item.quantity, item.unitPrice],
       );
       const row = inserted.rows[0];
-      createdItems.push({ id: row.id, name: row.item_name, type: row.item_type, quantity: Number(row.quantity), unitPrice: Number(row.unit_price), total: Number(row.total_value) });
+      createdItems.push({ id: row.id, productId: row.product_id ?? undefined, name: row.item_name, type: row.item_type, quantity: Number(row.quantity), unitPrice: Number(row.unit_price), total: Number(row.total_value) });
     }
 
     await client.query(
@@ -174,14 +174,17 @@ export async function POST(request: Request) {
     const order: WorkOrder = {
       id: orderId,
       number: orderNumber,
+      customerId,
       customer: customerName!,
       phone: customerPhone,
       plate,
       model,
       mileage,
       mechanic: mechanicName,
+      mechanicId,
       budgetDate: insertedOrder.rows[0].budget_date,
       total,
+      discount,
       status: "ORCAMENTO",
       notes: clean(body.notes),
       items: createdItems,

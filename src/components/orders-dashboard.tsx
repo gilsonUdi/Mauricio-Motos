@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   Menu,
   PackageSearch,
+  Pencil,
   Search,
   Settings,
   Users,
@@ -79,6 +80,7 @@ export function OrdersDashboard({ initialData }: { initialData: DashboardData })
   const [mobileMenu, setMobileMenu] = useState(false);
   const [notice, setNotice] = useState("");
   const [creatingOrder, setCreatingOrder] = useState(false);
+  const [editingOrder, setEditingOrder] = useState<WorkOrder | null>(null);
   const selected = orders.find((order) => order.id === selectedId) ?? orders[0];
 
   const filtered = useMemo(() => orders.filter((order) => {
@@ -114,13 +116,17 @@ export function OrdersDashboard({ initialData }: { initialData: DashboardData })
     setNotice(`Ordem ${selected.number} atualizada para ${statusLabels[status].toLowerCase()}.`);
   }
 
-  function orderCreated(order: WorkOrder) {
-    setOrders((current) => [order, ...current]);
+  function orderSaved(order: WorkOrder) {
+    const wasEditing = orders.some((entry) => entry.id === order.id);
+    setOrders((current) => wasEditing
+      ? current.map((entry) => entry.id === order.id ? order : entry)
+      : [order, ...current]);
     setSelectedId(order.id);
     setFilter("TODOS");
     setQuery("");
     setCreatingOrder(false);
-    setNotice(`Orçamento ${order.number} criado para ${order.customer}.`);
+    setEditingOrder(null);
+    setNotice(`Orçamento ${order.number} ${wasEditing ? "atualizado" : "criado"} para ${order.customer}.`);
   }
 
   return (
@@ -204,6 +210,7 @@ export function OrdersDashboard({ initialData }: { initialData: DashboardData })
                 <div className="service-notes"><Gauge size={18} /><div><span>Observações</span><p>{selected.notes ?? "Nenhuma observação registrada."}</p></div></div>
 
                 <div className="actions-bar">
+                  {selected.status === "ORCAMENTO" && <button className="action-button" onClick={() => setEditingOrder(selected)}><Pencil size={18} /> Editar orçamento</button>}
                   {selected.status !== "PEDIDO" && selected.status !== "VENDA_REALIZADA" && <button className="action-button amber" onClick={() => changeStatus("PEDIDO")}><ClipboardList size={18} /> Gerar pedido</button>}
                   {selected.status !== "VENDA_REALIZADA" && <button className="action-button green" onClick={() => changeStatus("VENDA_REALIZADA")}><CheckCircle2 size={18} /> Concluir venda</button>}
                   {selected.status !== "ORCAMENTO" && <button className="action-button" onClick={() => changeStatus("ORCAMENTO")}><FileText size={18} /> Retornar a orçamento</button>}
@@ -215,7 +222,8 @@ export function OrdersDashboard({ initialData }: { initialData: DashboardData })
         </section>
       </main>
       {notice && <button className="toast" onClick={() => setNotice("")}>{notice}</button>}
-      {creatingOrder && <OrderFormModal onClose={() => setCreatingOrder(false)} onCreated={orderCreated} />}
+      {creatingOrder && <OrderFormModal onClose={() => setCreatingOrder(false)} onSaved={orderSaved} />}
+      {editingOrder && <OrderFormModal initialOrder={editingOrder} onClose={() => setEditingOrder(null)} onSaved={orderSaved} />}
     </div>
   );
 }

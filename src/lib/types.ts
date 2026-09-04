@@ -2,6 +2,7 @@ export type OrderStatus = "ORCAMENTO" | "PEDIDO" | "VENDA_REALIZADA" | "CANCELAD
 
 export type OrderItem = {
   id: string;
+  productId?: string;
   name: string;
   type: string;
   quantity: number;
@@ -12,15 +13,18 @@ export type OrderItem = {
 export type WorkOrder = {
   id: string;
   number: string;
+  customerId?: string;
   customer: string;
   phone?: string;
   plate?: string;
   model?: string;
   mileage?: number;
   mechanic?: string;
+  mechanicId?: string;
   budgetDate?: string;
   saleDate?: string;
   total: number;
+  discount?: number;
   status: OrderStatus;
   paymentMethod?: string;
   notes?: string;

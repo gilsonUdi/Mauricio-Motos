@@ -5,19 +5,22 @@ import type { DashboardData, OrderStatus, WorkOrder } from "./types";
 type OrderRow = {
   id: string;
   number: string;
+  customer_id: string | null;
   customer: string;
   phone: string | null;
   plate: string | null;
   model: string | null;
   mileage: number | null;
   mechanic: string | null;
+  mechanic_id: string | null;
   budget_date: string | null;
   sale_date: string | null;
   total: string | number;
+  discount: string | number;
   status: OrderStatus;
   payment_method: string | null;
   notes: string | null;
-  items: Array<{ id: string; name: string; type: string; quantity: number; unitPrice: number; total: number }> | null;
+  items: Array<{ id: string; productId?: string; name: string; type: string; quantity: number; unitPrice: number; total: number }> | null;
 };
 
 export async function getDashboardData(): Promise<DashboardData> {
@@ -29,15 +32,18 @@ export async function getDashboardData(): Promise<DashboardData> {
       SELECT
         o.id::text,
         o.order_number AS number,
+        o.customer_id::text,
         o.customer_name AS customer,
         c.phone,
         o.vehicle_plate AS plate,
         o.vehicle_model AS model,
         o.mileage,
         o.mechanic_name AS mechanic,
+        o.mechanic_id::text,
         o.budget_date::text,
         o.sale_date::text,
         o.total_value AS total,
+        o.discount_value AS discount,
         o.status,
         o.payment_method,
         o.notes,
@@ -45,6 +51,7 @@ export async function getDashboardData(): Promise<DashboardData> {
           jsonb_agg(
             jsonb_build_object(
               'id', i.id::text,
+              'productId', i.product_id::text,
               'name', i.item_name,
               'type', i.item_type,
               'quantity', i.quantity,
@@ -65,15 +72,18 @@ export async function getDashboardData(): Promise<DashboardData> {
     const orders: WorkOrder[] = result.rows.map((row) => ({
       id: row.id,
       number: row.number,
+      customerId: row.customer_id ?? undefined,
       customer: row.customer,
       phone: row.phone ?? undefined,
       plate: row.plate ?? undefined,
       model: row.model ?? undefined,
       mileage: row.mileage ?? undefined,
       mechanic: row.mechanic ?? undefined,
+      mechanicId: row.mechanic_id ?? undefined,
       budgetDate: row.budget_date ?? undefined,
       saleDate: row.sale_date ?? undefined,
       total: Number(row.total ?? 0),
+      discount: Number(row.discount ?? 0),
       status: row.status,
       paymentMethod: row.payment_method ?? undefined,
       notes: row.notes ?? undefined,

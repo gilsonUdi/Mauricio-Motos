@@ -15,7 +15,8 @@ type DraftItem = {
 
 type Props = {
   onClose: () => void;
-  onCreated: (order: WorkOrder) => void;
+  onSaved: (order: WorkOrder) => void;
+  initialOrder?: WorkOrder;
 };
 
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
@@ -29,25 +30,32 @@ function blankItem(key: number): DraftItem {
   return { key, name: "", type: "Produto", quantity: "1", unitPrice: "0" };
 }
 
-export function OrderFormModal({ onClose, onCreated }: Props) {
+export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
   const [lookups, setLookups] = useState<OrderLookups | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [customerName, setCustomerName] = useState("");
-  const [customerId, setCustomerId] = useState("");
-  const [phone, setPhone] = useState("");
+  const [customerName, setCustomerName] = useState(initialOrder?.customer ?? "");
+  const [customerId, setCustomerId] = useState(initialOrder?.customerId ?? "");
+  const [phone, setPhone] = useState(initialOrder?.phone ?? "");
   const [document, setDocument] = useState("");
   const [vehicleId, setVehicleId] = useState("");
-  const [plate, setPlate] = useState("");
-  const [model, setModel] = useState("");
-  const [mileage, setMileage] = useState("");
-  const [mechanicId, setMechanicId] = useState("");
-  const [budgetDate, setBudgetDate] = useState(today);
-  const [discount, setDiscount] = useState("0");
-  const [notes, setNotes] = useState("");
-  const [items, setItems] = useState<DraftItem[]>([blankItem(1)]);
-  const [nextKey, setNextKey] = useState(2);
+  const [plate, setPlate] = useState(initialOrder?.plate ?? "");
+  const [model, setModel] = useState(initialOrder?.model ?? "");
+  const [mileage, setMileage] = useState(initialOrder?.mileage ? String(initialOrder.mileage) : "");
+  const [mechanicId, setMechanicId] = useState(initialOrder?.mechanicId ?? "");
+  const [budgetDate, setBudgetDate] = useState(initialOrder?.budgetDate ?? today);
+  const [discount, setDiscount] = useState(String(initialOrder?.discount ?? 0));
+  const [notes, setNotes] = useState(initialOrder?.notes ?? "");
+  const [items, setItems] = useState<DraftItem[]>(initialOrder?.items.length ? initialOrder.items.map((item, index) => ({
+    key: index + 1,
+    productId: item.productId,
+    name: item.name,
+    type: item.type || "Produto/Serviço",
+    quantity: String(item.quantity),
+    unitPrice: String(item.unitPrice),
+  })) : [blankItem(1)]);
+  const [nextKey, setNextKey] = useState((initialOrder?.items.length ?? 1) + 1);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -55,14 +63,22 @@ export function OrderFormModal({ onClose, onCreated }: Props) {
       .then(async (response) => {
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.error ?? "Não foi possível carregar os cadastros.");
-        setLookups(payload as OrderLookups);
+        const loaded = payload as OrderLookups;
+        setLookups(loaded);
+        if (initialOrder?.plate) {
+          const normalizedPlate = initialOrder.plate.replace(/[^A-Z0-9]/gi, "").toUpperCase();
+          const vehicle = loaded.vehicles.find((entry) =>
+            entry.customerId === initialOrder.customerId && entry.plate.replace(/[^A-Z0-9]/gi, "").toUpperCase() === normalizedPlate
+          );
+          if (vehicle) setVehicleId(vehicle.id);
+        }
       })
       .catch((caught) => {
         if (caught instanceof Error && caught.name !== "AbortError") setError(caught.message);
       })
       .finally(() => setLoading(false));
     return () => controller.abort();
-  }, []);
+  }, [initialOrder]);
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -129,8 +145,8 @@ export function OrderFormModal({ onClose, onCreated }: Props) {
 
     setSaving(true);
     try {
-      const response = await fetch("/api/orders", {
-        method: "POST",
+      const response = await fetch(initialOrder ? `/api/orders/${initialOrder.id}` : "/api/orders", {
+        method: initialOrder ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           customerId: customerId || undefined,
@@ -156,7 +172,7 @@ export function OrderFormModal({ onClose, onCreated }: Props) {
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "Não foi possível salvar o orçamento.");
-      onCreated(payload as WorkOrder);
+      onSaved(payload as WorkOrder);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Não foi possível salvar o orçamento.");
     } finally {
@@ -166,9 +182,9 @@ export function OrderFormModal({ onClose, onCreated }: Props) {
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section className="order-modal" role="dialog" aria-modal="true" aria-labelledby="new-order-title">
+      <section className="order-modal" role="dialog" aria-modal="true" aria-labelledby="order-form-title">
         <header className="modal-header">
-          <div><span className="section-kicker">ATENDIMENTO</span><h2 id="new-order-title">Novo orçamento</h2></div>
+          <div><span className="section-kicker">ATENDIMENTO</span><h2 id="order-form-title">{initialOrder ? `Editar orçamento ${initialOrder.number}` : "Novo orçamento"}</h2></div>
           <button className="icon-button" type="button" onClick={onClose} aria-label="Fechar"><X /></button>
         </header>
 
@@ -220,7 +236,7 @@ export function OrderFormModal({ onClose, onCreated }: Props) {
             </div>
 
             {error && <p className="form-error">{error}</p>}
-            <footer className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancelar</button><button type="submit" className="primary-button" disabled={saving}>{saving ? <LoaderCircle className="spin" size={18} /> : <Save size={18} />}{saving ? "Salvando..." : "Salvar orçamento"}</button></footer>
+            <footer className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancelar</button><button type="submit" className="primary-button" disabled={saving}>{saving ? <LoaderCircle className="spin" size={18} /> : <Save size={18} />}{saving ? "Salvando..." : initialOrder ? "Salvar alterações" : "Salvar orçamento"}</button></footer>
           </form>
         )}
 
