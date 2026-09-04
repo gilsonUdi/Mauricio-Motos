@@ -31,3 +31,37 @@ export type DashboardData = {
   connected: boolean;
   orders: WorkOrder[];
 };
+
+export type CustomerLookup = {
+  id: string;
+  name: string;
+  phone?: string;
+  document?: string;
+};
+
+export type VehicleLookup = {
+  id: string;
+  customerId?: string;
+  plate: string;
+  model?: string;
+  mileage?: number;
+};
+
+export type ProductLookup = {
+  id: string;
+  name: string;
+  type?: string;
+  salePrice: number;
+};
+
+export type MechanicLookup = {
+  id: string;
+  name: string;
+};
+
+export type OrderLookups = {
+  customers: CustomerLookup[];
+  vehicles: VehicleLookup[];
+  products: ProductLookup[];
+  mechanics: MechanicLookup[];
+};

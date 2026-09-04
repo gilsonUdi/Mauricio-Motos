@@ -19,7 +19,8 @@ import {
   XCircle,
 } from "lucide-react";
 import { useMemo, useState } from "react";
-import type { DashboardData, OrderStatus } from "@/lib/types";
+import { OrderFormModal } from "@/components/order-form-modal";
+import type { DashboardData, OrderStatus, WorkOrder } from "@/lib/types";
 
 const statusLabels: Record<OrderStatus, string> = {
   ORCAMENTO: "Orçamento",
@@ -77,6 +78,7 @@ export function OrdersDashboard({ initialData }: { initialData: DashboardData })
   const [filter, setFilter] = useState<OrderStatus | "TODOS">("TODOS");
   const [mobileMenu, setMobileMenu] = useState(false);
   const [notice, setNotice] = useState("");
+  const [creatingOrder, setCreatingOrder] = useState(false);
   const selected = orders.find((order) => order.id === selectedId) ?? orders[0];
 
   const filtered = useMemo(() => orders.filter((order) => {
@@ -112,6 +114,15 @@ export function OrdersDashboard({ initialData }: { initialData: DashboardData })
     setNotice(`Ordem ${selected.number} atualizada para ${statusLabels[status].toLowerCase()}.`);
   }
 
+  function orderCreated(order: WorkOrder) {
+    setOrders((current) => [order, ...current]);
+    setSelectedId(order.id);
+    setFilter("TODOS");
+    setQuery("");
+    setCreatingOrder(false);
+    setNotice(`Orçamento ${order.number} criado para ${order.customer}.`);
+  }
+
   return (
     <div className="app-shell">
       <Sidebar />
@@ -124,7 +135,7 @@ export function OrdersDashboard({ initialData }: { initialData: DashboardData })
           </div>
           <div className="topbar-actions">
             {!initialData.connected && <span className="demo-pill">Prévia com dados de demonstração</span>}
-            <button className="primary-button"><FileText size={18} /> Novo orçamento</button>
+            <button className="primary-button" onClick={() => setCreatingOrder(true)}><FileText size={18} /> Novo orçamento</button>
           </div>
         </header>
 
@@ -204,6 +215,7 @@ export function OrdersDashboard({ initialData }: { initialData: DashboardData })
         </section>
       </main>
       {notice && <button className="toast" onClick={() => setNotice("")}>{notice}</button>}
+      {creatingOrder && <OrderFormModal onClose={() => setCreatingOrder(false)} onCreated={orderCreated} />}
     </div>
   );
 }
