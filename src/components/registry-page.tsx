@@ -1,0 +1,238 @@
+"use client";
+
+import { Bike, LoaderCircle, Menu, PackagePlus, Pencil, Plus, Save, Search, UserRoundCog, Users, Wrench, X } from "lucide-react";
+import Link from "next/link";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { AppSidebar } from "@/components/app-sidebar";
+import type { RegistryEntity } from "@/lib/registries";
+
+type RegistryRecord = { id: string; [key: string]: unknown };
+type CustomerOption = { id: string; name: string };
+type FieldDefinition = {
+  key: string;
+  label: string;
+  type?: "text" | "number" | "checkbox" | "customer";
+  required?: boolean;
+  step?: string;
+  placeholder?: string;
+};
+type ColumnDefinition = { key: string; label: string; format?: "money" | "percent" | "number" | "status" };
+
+const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+const number = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 3 });
+
+const configs: Record<RegistryEntity, {
+  title: string;
+  singular: string;
+  description: string;
+  icon: typeof Users;
+  fields: FieldDefinition[];
+  columns: ColumnDefinition[];
+}> = {
+  customers: {
+    title: "Clientes", singular: "cliente", icon: Users,
+    description: "Contatos e veículos padrão utilizados nos atendimentos.",
+    fields: [
+      { key: "name", label: "Nome", required: true },
+      { key: "phone", label: "Telefone" },
+      { key: "document", label: "CPF/CNPJ" },
+      { key: "defaultPlate", label: "Placa padrão" },
+      { key: "defaultModel", label: "Modelo padrão" },
+    ],
+    columns: [
+      { key: "name", label: "Cliente" }, { key: "phone", label: "Telefone" },
+      { key: "document", label: "CPF/CNPJ" }, { key: "defaultPlate", label: "Placa padrão" },
+    ],
+  },
+  vehicles: {
+    title: "Veículos", singular: "veículo", icon: Bike,
+    description: "Motos e veículos vinculados aos clientes da oficina.",
+    fields: [
+      { key: "customerId", label: "Cliente", type: "customer" },
+      { key: "plate", label: "Placa", required: true },
+      { key: "model", label: "Modelo/descrição" },
+      { key: "brand", label: "Marca" },
+      { key: "mileage", label: "Quilometragem", type: "number", step: "1" },
+    ],
+    columns: [
+      { key: "plate", label: "Placa" }, { key: "model", label: "Modelo" },
+      { key: "customerName", label: "Cliente" }, { key: "mileage", label: "Quilometragem", format: "number" },
+    ],
+  },
+  products: {
+    title: "Produtos e serviços", singular: "produto ou serviço", icon: Wrench,
+    description: "Catálogo, preços e saldo atual usados na montagem dos orçamentos.",
+    fields: [
+      { key: "name", label: "Nome", required: true },
+      { key: "type", label: "Tipo", placeholder: "Produto ou Serviço" },
+      { key: "costPrice", label: "Preço de custo", type: "number", step: "0.01" },
+      { key: "salePrice", label: "Preço de venda", type: "number", step: "0.01" },
+      { key: "profitMargin", label: "Margem (%)", type: "number", step: "0.01", placeholder: "Calculada se ficar vazia" },
+      { key: "stock", label: "Estoque atual", type: "number", step: "0.001" },
+      { key: "active", label: "Cadastro ativo", type: "checkbox" },
+    ],
+    columns: [
+      { key: "name", label: "Descrição" }, { key: "type", label: "Tipo" },
+      { key: "salePrice", label: "Venda", format: "money" }, { key: "stock", label: "Estoque", format: "number" },
+      { key: "active", label: "Situação", format: "status" },
+    ],
+  },
+  mechanics: {
+    title: "Mecânicos", singular: "mecânico", icon: UserRoundCog,
+    description: "Profissionais disponíveis e percentual padrão de comissão.",
+    fields: [
+      { key: "name", label: "Nome", required: true },
+      { key: "commissionPercent", label: "Comissão (%)", type: "number", step: "0.01" },
+      { key: "active", label: "Cadastro ativo", type: "checkbox" },
+    ],
+    columns: [
+      { key: "name", label: "Mecânico" }, { key: "commissionPercent", label: "Comissão", format: "percent" },
+      { key: "active", label: "Situação", format: "status" },
+    ],
+  },
+};
+
+function displayValue(value: unknown, format?: ColumnDefinition["format"]) {
+  if (format === "money") return currency.format(Number(value) || 0);
+  if (format === "percent") return `${number.format(Number(value) || 0)}%`;
+  if (format === "number") return value === null || value === undefined ? "—" : number.format(Number(value));
+  if (format === "status") return value ? "Ativo" : "Inativo";
+  return value === null || value === undefined || value === "" ? "—" : String(value);
+}
+
+function initialForm(entity: RegistryEntity, record?: RegistryRecord) {
+  const result: Record<string, string | boolean> = {};
+  for (const field of configs[entity].fields) {
+    const value = record?.[field.key];
+    result[field.key] = field.type === "checkbox" ? (record ? Boolean(value) : true) : value === null || value === undefined ? "" : String(value);
+  }
+  return result;
+}
+
+export function RegistryPage({ entity }: { entity: RegistryEntity }) {
+  const config = configs[entity];
+  const Icon = config.icon;
+  const [records, setRecords] = useState<RegistryRecord[]>([]);
+  const [customers, setCustomers] = useState<CustomerOption[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
+  const [visibleLimit, setVisibleLimit] = useState(80);
+  const [editing, setEditing] = useState<RegistryRecord | null | undefined>(undefined);
+  const [form, setForm] = useState<Record<string, string | boolean>>(initialForm(entity));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [mobileMenu, setMobileMenu] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(`/api/registries/${entity}`, { signal: controller.signal })
+      .then(async (response) => {
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error ?? "Não foi possível carregar o cadastro.");
+        setRecords(payload.records as RegistryRecord[]);
+        setCustomers(payload.customers as CustomerOption[] ?? []);
+      })
+      .catch((caught) => {
+        if (caught instanceof Error && caught.name !== "AbortError") setError(caught.message);
+      })
+      .finally(() => setLoading(false));
+    return () => controller.abort();
+  }, [entity]);
+
+  const filtered = useMemo(() => {
+    const term = query.trim().toLocaleLowerCase("pt-BR");
+    if (!term) return records;
+    return records.filter((record) => Object.values(record).some((value) => String(value ?? "").toLocaleLowerCase("pt-BR").includes(term)));
+  }, [query, records]);
+  const activeCount = records.filter((record) => record.active !== false).length;
+
+  function openForm(record: RegistryRecord | null) {
+    setEditing(record);
+    setForm(initialForm(entity, record ?? undefined));
+    setError("");
+  }
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch(editing ? `/api/registries/${entity}/${editing.id}` : `/api/registries/${entity}`, {
+        method: editing ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "Não foi possível salvar.");
+      const saved = payload as RegistryRecord;
+      setRecords((current) => editing ? current.map((record) => record.id === saved.id ? saved : record) : [saved, ...current]);
+      setNotice(`${config.singular[0].toUpperCase()}${config.singular.slice(1)} ${editing ? "atualizado" : "cadastrado"} com sucesso.`);
+      setEditing(undefined);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Não foi possível salvar.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="app-shell">
+      <AppSidebar active={entity} />
+      <main className="workspace registry-workspace">
+        <header className="topbar registry-topbar">
+          <button className="mobile-menu" onClick={() => setMobileMenu(!mobileMenu)} aria-label="Abrir menu"><Menu /></button>
+          <div><p className="eyebrow">CADASTROS</p><h1>{config.title}</h1><p className="page-description">{config.description}</p></div>
+          <button className="primary-button" onClick={() => openForm(null)}><Plus size={18} /> Novo {config.singular}</button>
+        </header>
+        {mobileMenu && <div className="mobile-shortcuts registry-shortcuts"><Link href="/">Atendimento</Link><Link href="/clientes">Clientes</Link><Link href="/veiculos">Veículos</Link><Link href="/produtos">Produtos</Link><Link href="/mecanicos">Mecânicos</Link></div>}
+
+        <section className="registry-summary">
+          <div><Icon size={22} /><span>Total cadastrado</span><strong>{records.length}</strong></div>
+          {(entity === "products" || entity === "mechanics") && <div><PackagePlus size={22} /><span>Cadastros ativos</span><strong>{activeCount}</strong></div>}
+          <label className="registry-search"><Search size={19} /><input value={query} onChange={(event) => { setQuery(event.target.value); setVisibleLimit(80); }} placeholder={`Buscar ${config.title.toLocaleLowerCase("pt-BR")}`} /></label>
+        </section>
+
+        <section className="registry-panel">
+          {loading ? <div className="registry-loading"><LoaderCircle className="spin" /> Carregando cadastro...</div> : error && !records.length ? <div className="empty-state">{error}</div> : (
+            <>
+              <div className="registry-table-wrap">
+                <table className="registry-table">
+                  <thead><tr>{config.columns.map((column) => <th key={column.key}>{column.label}</th>)}<th>Ações</th></tr></thead>
+                  <tbody>
+                    {filtered.slice(0, visibleLimit).map((record) => <tr key={record.id} className={record.active === false ? "inactive-row" : ""}>
+                      {config.columns.map((column) => <td key={column.key} data-label={column.label}>{column.format === "status" ? <span className={`registry-status ${record[column.key] ? "active" : "inactive"}`}>{displayValue(record[column.key], column.format)}</span> : displayValue(record[column.key], column.format)}</td>)}
+                      <td data-label="Ações"><button className="table-action" onClick={() => openForm(record)}><Pencil size={16} /> Editar</button></td>
+                    </tr>)}
+                  </tbody>
+                </table>
+                {!filtered.length && <div className="empty-state">Nenhum registro encontrado.</div>}
+              </div>
+              {visibleLimit < filtered.length && <button className="load-more" onClick={() => setVisibleLimit((current) => current + 80)}>Mostrar mais {Math.min(80, filtered.length - visibleLimit)} registros</button>}
+            </>
+          )}
+        </section>
+      </main>
+
+      {editing !== undefined && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setEditing(undefined)}>
+        <section className="registry-modal" role="dialog" aria-modal="true" aria-labelledby="registry-form-title">
+          <header className="modal-header"><div><span className="section-kicker">CADASTRO</span><h2 id="registry-form-title">{editing ? `Editar ${config.singular}` : `Novo ${config.singular}`}</h2></div><button className="icon-button" onClick={() => setEditing(undefined)} aria-label="Fechar"><X /></button></header>
+          <form className="registry-form" onSubmit={save}>
+            <div className="form-grid registry-form-grid">
+              {config.fields.map((field) => field.type === "checkbox" ? (
+                <label className="checkbox-field" key={field.key}><input type="checkbox" checked={Boolean(form[field.key])} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.checked }))} /><span>{field.label}</span></label>
+              ) : field.type === "customer" ? (
+                <label className="field span-2" key={field.key}><span>{field.label}</span><select value={String(form[field.key] ?? "")} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))}><option value="">Sem cliente vinculado</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></label>
+              ) : (
+                <label className={`field ${field.key === "name" ? "span-2" : ""}`} key={field.key}><span>{field.label}{field.required ? " *" : ""}</span><input type={field.type ?? "text"} min={field.type === "number" ? "0" : undefined} step={field.step} required={field.required} value={String(form[field.key] ?? "")} placeholder={field.placeholder} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))} /></label>
+              ))}
+            </div>
+            {error && <p className="form-error">{error}</p>}
+            <footer className="modal-actions"><button type="button" className="secondary-button" onClick={() => setEditing(undefined)}>Cancelar</button><button type="submit" className="primary-button" disabled={saving}>{saving ? <LoaderCircle className="spin" size={18} /> : <Save size={18} />}{saving ? "Salvando..." : "Salvar"}</button></footer>
+          </form>
+        </section>
+      </div>}
+      {notice && <button className="toast" onClick={() => setNotice("")}>{notice}</button>}
+    </div>
+  );
+}

@@ -2,24 +2,18 @@
 
 import {
   Bike,
-  Boxes,
   CheckCircle2,
   ChevronRight,
-  CircleDollarSign,
   ClipboardList,
   FileText,
   Gauge,
-  LayoutDashboard,
   Menu,
-  PackageSearch,
   Pencil,
   Search,
-  Settings,
-  Users,
-  Wrench,
   XCircle,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { AppSidebar } from "@/components/app-sidebar";
 import { OrderFormModal } from "@/components/order-form-modal";
 import type { DashboardData, OrderStatus, WorkOrder } from "@/lib/types";
 
@@ -35,33 +29,6 @@ const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "
 function formatDate(value?: string) {
   if (!value) return "—";
   return new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(`${value}T00:00:00Z`));
-}
-
-function Sidebar() {
-  const entries = [
-    { label: "Atendimento", icon: LayoutDashboard, active: true },
-    { label: "Orçamentos", icon: ClipboardList },
-    { label: "Compras", icon: PackageSearch },
-    { label: "Contas a receber", icon: CircleDollarSign },
-    { label: "Estoque", icon: Boxes },
-    { label: "Clientes", icon: Users },
-    { label: "Veículos", icon: Bike },
-    { label: "Produtos e serviços", icon: Wrench },
-  ];
-
-  return (
-    <aside className="sidebar">
-      <div className="brand-mark"><Wrench size={22} /><span>MM</span></div>
-      <nav aria-label="Navegação principal">
-        {entries.map(({ label, icon: Icon, active }) => (
-          <button className={`nav-button ${active ? "active" : ""}`} key={label} title={label}>
-            <Icon size={20} /><span>{label}</span>
-          </button>
-        ))}
-      </nav>
-      <button className="nav-button settings"><Settings size={20} /><span>Configurações</span></button>
-    </aside>
-  );
 }
 
 function StatCard({ label, value, tone }: { label: string; value: string; tone?: string }) {
@@ -131,7 +98,7 @@ export function OrdersDashboard({ initialData }: { initialData: DashboardData })
 
   return (
     <div className="app-shell">
-      <Sidebar />
+      <AppSidebar active="atendimento" />
       <main className="workspace">
         <header className="topbar">
           <button className="mobile-menu" onClick={() => setMobileMenu(!mobileMenu)} aria-label="Abrir menu"><Menu /></button>
