@@ -6,7 +6,7 @@ const slugify = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036
 
 export async function GET() {
   const actor = await getSessionUser(); if (actor?.role !== "SUPER_ADMIN") return NextResponse.json({ error: "Acesso restrito." }, { status: 403 });
-  try { await ensureAuthSchema(); const result = await getPool()!.query(`SELECT c.id::text,c.name,c.slug,c.active,c.created_at,COUNT(u.id)::integer AS user_count,COUNT(u.id) FILTER (WHERE u.role='ADMIN' AND u.active)::integer AS admin_count,MAX(u.email) FILTER (WHERE u.role='ADMIN' AND u.active) AS admin_email FROM app_live.companies c LEFT JOIN app_live.app_users u ON u.company_id=c.id GROUP BY c.id ORDER BY c.created_at DESC`); return NextResponse.json({ companies: result.rows }); }
+  try { await ensureAuthSchema(); const result = await getPool()!.query(`SELECT c.id::text,c.name,c.slug,c.active,c.created_at,COUNT(u.id)::integer AS user_count,COUNT(u.id) FILTER (WHERE u.role='ADMIN' AND u.active)::integer AS admin_count,principal.id::text AS admin_user_id,principal.email AS admin_email FROM app_live.companies c LEFT JOIN app_live.app_users u ON u.company_id=c.id LEFT JOIN LATERAL (SELECT au.id,au.email FROM app_live.app_users au WHERE au.company_id=c.id AND au.role='ADMIN' AND au.active ORDER BY au.created_at,au.id LIMIT 1) principal ON true GROUP BY c.id,principal.id,principal.email ORDER BY c.created_at DESC`); return NextResponse.json({ companies: result.rows }); }
   catch (error) { console.error(error); return NextResponse.json({ error: "Não foi possível carregar as empresas." }, { status: 500 }); }
 }
 
