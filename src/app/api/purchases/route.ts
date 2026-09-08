@@ -5,7 +5,7 @@ import { uuidPattern } from "@/lib/registries";
 import { getTenantScope } from "@/lib/auth";
 
 type PurchaseItem = { productId?: string; quantity?: number; unitCost?: number };
-type PurchaseInput = { supplier?: string; date?: string; items?: PurchaseItem[] };
+type PurchaseInput = { supplierId?: string; supplier?: string; date?: string; items?: PurchaseItem[] };
 
 const money = (value: unknown) => Math.round(Math.max(0, Number(value) || 0) * 100) / 100;
 const validDate = (value?: string) => /^\d{4}-\d{2}-\d{2}$/.test(value ?? "") ? value : null;
@@ -15,7 +15,7 @@ export async function GET() {
   if (!pool) return NextResponse.json({ error: "Banco não configurado." }, { status: 503 });
   const scope=await getTenantScope(); if(!scope)return NextResponse.json({error:"Selecione uma empresa."},{status:403});
   try {
-    const [purchases, products] = await Promise.all([
+    const [purchases, products, suppliers] = await Promise.all([
       pool.query(`
         SELECT * FROM (
           SELECT p.id::text, p.issue_date::text AS date, p.supplier_name AS supplier,
@@ -34,7 +34,8 @@ export async function GET() {
             AND NOT EXISTS (SELECT 1 FROM app_live.purchases p WHERE p.company_id=f.company_id AND p.legacy_purchase_key=f.legacy_finance_key)
           GROUP BY f.id
         ) history ORDER BY date DESC NULLS LAST, created_at DESC LIMIT 500`,[scope.companyId]),
-      pool.query(`SELECT id::text,name,type,cost_price,current_stock FROM app_live.products WHERE active AND company_id=$1::uuid AND lower(COALESCE(type,'')) NOT LIKE '%serv%' ORDER BY name`,[scope.companyId]),
+      pool.query(`SELECT id::text,name,type,cost_price,current_stock FROM app_live.products WHERE active AND company_id=$1::uuid AND item_kind<>'SERVICO' ORDER BY name`,[scope.companyId]),
+      pool.query(`SELECT id::text,name,payment_terms_days FROM app_live.suppliers WHERE active AND company_id=$1::uuid ORDER BY name`,[scope.companyId]),
     ]);
     return NextResponse.json({
       purchases: purchases.rows.map((row) => ({
@@ -44,6 +45,7 @@ export async function GET() {
       products: products.rows.map((row) => ({
         id: row.id, name: row.name, type: row.type, costPrice: Number(row.cost_price ?? 0), stock: Number(row.current_stock ?? 0),
       })),
+      suppliers: suppliers.rows.map((row)=>({id:row.id,name:row.name,paymentTermsDays:Number(row.payment_terms_days??0)})),
     });
   } catch (error) {
     console.error("Falha ao carregar compras", error);
@@ -59,9 +61,10 @@ export async function POST(request: Request) {
   try { body = await request.json() as PurchaseInput; }
   catch { return NextResponse.json({ error: "Dados inválidos." }, { status: 400 }); }
 
-  const supplier = body.supplier?.trim();
+  let supplier = body.supplier?.trim();
+  const supplierId=body.supplierId&&uuidPattern.test(body.supplierId)?body.supplierId:null;
   const rawItems = Array.isArray(body.items) ? body.items : [];
-  if (!supplier) return NextResponse.json({ error: "Informe o fornecedor." }, { status: 400 });
+  if (!supplier&&!supplierId) return NextResponse.json({ error: "Informe o fornecedor." }, { status: 400 });
   if (!rawItems.length) return NextResponse.json({ error: "Inclua ao menos um produto." }, { status: 400 });
   if (rawItems.some((item) => !item.productId || !uuidPattern.test(item.productId) || Number(item.quantity) <= 0)) {
     return NextResponse.json({ error: "Revise os produtos e as quantidades informadas." }, { status: 400 });
@@ -85,13 +88,15 @@ export async function POST(request: Request) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    let paymentTermsDays=0;
+    if(supplierId){const found=await client.query(`SELECT name,payment_terms_days FROM app_live.suppliers WHERE id=$1::uuid AND company_id=$2::uuid AND active FOR SHARE`,[supplierId,scope.companyId]);if(!found.rowCount)throw new Error("SUPPLIER_NOT_FOUND");supplier=found.rows[0].name;paymentTermsDays=Number(found.rows[0].payment_terms_days??0);}
     const total = money(items.reduce((sum, [, item]) => sum + item.quantity * item.unitCost, 0));
     const purchase = await client.query(
       `INSERT INTO app_live.purchases
-       (company_id,supplier_name,issue_date,competence_date,total_amount,status,legacy_purchase_key)
-       VALUES ($1::uuid,$2,COALESCE($3::date,CURRENT_DATE),COALESCE($3::date,CURRENT_DATE),$4,'CONFIRMADA',$5)
+       (company_id,supplier_id,supplier_name,issue_date,competence_date,total_amount,status,legacy_purchase_key)
+       VALUES ($1::uuid,$2::uuid,$3,COALESCE($4::date,CURRENT_DATE),COALESCE($4::date,CURRENT_DATE),$5,'CONFIRMADA',$6)
        RETURNING id::text,issue_date::text`,
-      [scope.companyId,supplier,date,total,purchaseKey],
+      [scope.companyId,supplierId,supplier,date,total,purchaseKey],
     );
     const purchaseId = purchase.rows[0].id as string;
     const prepared: Array<{ productId: string; name: string; quantity: number; unitCost: number; balance: number; previousStock: number; previousCost: number; averageCost: number }> = [];
@@ -145,9 +150,9 @@ export async function POST(request: Request) {
     );
     await client.query(
       `INSERT INTO app_live.accounts_payable
-       (company_id,purchase_id,category_id,description,issue_date,competence_date,due_date,original_amount,open_amount,status,notes)
-       VALUES ($1::uuid,$2::uuid,$3::uuid,$4,COALESCE($5::date,CURRENT_DATE),COALESCE($5::date,CURRENT_DATE),COALESCE($5::date,CURRENT_DATE),$6,$6,'PENDENTE','Gerado automaticamente pela compra de estoque')`,
-      [scope.companyId,purchaseId,category.rows[0]?.id??null,`Compra de estoque - ${supplier}`,date,total],
+       (company_id,purchase_id,supplier_id,category_id,description,issue_date,competence_date,due_date,original_amount,open_amount,status,notes)
+       VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5,COALESCE($6::date,CURRENT_DATE),COALESCE($6::date,CURRENT_DATE),COALESCE($6::date,CURRENT_DATE)+$7::integer,$8,$8,'PENDENTE','Gerado automaticamente pela compra de estoque')`,
+      [scope.companyId,purchaseId,supplierId,category.rows[0]?.id??null,`Compra de estoque - ${supplier}`,date,paymentTermsDays,total],
     );
     await client.query(
       `INSERT INTO app_live.financial_events
@@ -168,8 +173,8 @@ export async function POST(request: Request) {
   } catch (error) {
     await client.query("ROLLBACK");
     console.error("Falha ao registrar compra", error);
-    const message = error instanceof Error && error.message === "PRODUCT_NOT_FOUND" ? "Um dos produtos não foi encontrado ou está inativo." : "Não foi possível registrar a compra.";
-    return NextResponse.json({ error: message }, { status: error instanceof Error && error.message === "PRODUCT_NOT_FOUND" ? 400 : 500 });
+    const known=error instanceof Error?error.message:"";const message=known==="PRODUCT_NOT_FOUND"?"Um dos produtos não foi encontrado ou está inativo.":known==="SUPPLIER_NOT_FOUND"?"Fornecedor não encontrado ou inativo.":"Não foi possível registrar a compra.";
+    return NextResponse.json({ error: message }, { status: known==="PRODUCT_NOT_FOUND"||known==="SUPPLIER_NOT_FOUND"?400:500 });
   } finally {
     client.release();
   }

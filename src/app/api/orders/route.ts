@@ -114,7 +114,7 @@ export async function POST(request: Request) {
 
       if (productId) {
         const product = await client.query(
-          `SELECT name,type,COALESCE(sale_price,0) AS sale_price FROM app_live.products WHERE id=$1::uuid AND active AND company_id=$2::uuid`,
+          `SELECT name,CASE WHEN item_kind='SERVICO' THEN 'Serviço' ELSE COALESCE(type,'Produto') END AS type,COALESCE(sale_price,0) AS sale_price FROM app_live.products WHERE id=$1::uuid AND active AND company_id=$2::uuid`,
           [productId,scope.companyId],
         );
         if (!product.rowCount) throw new Error("PRODUCT_NOT_FOUND");

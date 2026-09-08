@@ -6,6 +6,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 
 type Product = { id: string; name: string; type?: string; costPrice: number; stock: number };
+type Supplier = { id:string; name:string; paymentTermsDays:number };
 type Purchase = { id: string; date: string; supplier: string; total: number; itemCount: number; totalQuantity: number };
 type DraftItem = { key: number; productId?: string; productName: string; quantity: string; unitCost: string };
 
@@ -18,8 +19,10 @@ const normalize = (value: string) => value.trim().toLocaleLowerCase("pt-BR");
 export function PurchasesPage() {
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [suppliers,setSuppliers]=useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [supplierId,setSupplierId]=useState("");
   const [supplier, setSupplier] = useState("");
   const [date, setDate] = useState(today);
   const [items, setItems] = useState<DraftItem[]>([blankItem(1)]);
@@ -35,6 +38,7 @@ export function PurchasesPage() {
     if (!response.ok) throw new Error(payload.error ?? "Não foi possível carregar as compras.");
     setPurchases(payload.purchases as Purchase[]);
     setProducts(payload.products as Product[]);
+    setSuppliers((payload.suppliers as Supplier[] | undefined) ?? []);
   }
 
   useEffect(() => {
@@ -44,6 +48,7 @@ export function PurchasesPage() {
       if (!response.ok) throw new Error(payload.error ?? "Não foi possível carregar as compras.");
       setPurchases(payload.purchases as Purchase[]);
       setProducts(payload.products as Product[]);
+      setSuppliers((payload.suppliers as Supplier[] | undefined) ?? []);
     }).catch((caught) => {
       if (caught instanceof Error && caught.name !== "AbortError") setError(caught.message);
     }).finally(() => setLoading(false));
@@ -61,7 +66,7 @@ export function PurchasesPage() {
   }
 
   function resetForm() {
-    setSupplier(""); setDate(today()); setItems([blankItem(1)]); setNextKey(2); setError("");
+    setSupplierId("");setSupplier(""); setDate(today()); setItems([blankItem(1)]); setNextKey(2); setError("");
   }
 
   async function save(event: FormEvent) {
@@ -72,7 +77,7 @@ export function PurchasesPage() {
     try {
       const response = await fetch("/api/purchases", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ supplier, date, items: items.map((item) => ({ productId: item.productId, quantity: Number(item.quantity.replace(",", ".")), unitCost: Number(item.unitCost.replace(",", ".")) })) }),
+        body: JSON.stringify({ supplierId:supplierId||undefined,supplier, date, items: items.map((item) => ({ productId: item.productId, quantity: Number(item.quantity.replace(",", ".")), unitCost: Number(item.unitCost.replace(",", ".")) })) }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "Não foi possível registrar a compra.");
@@ -103,7 +108,7 @@ export function PurchasesPage() {
       </section>
     </main>
     {showForm && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setShowForm(false)}><section className="order-modal" role="dialog" aria-modal="true" aria-labelledby="purchase-title"><header className="modal-header"><div><span className="section-kicker">ESTOQUE</span><h2 id="purchase-title">Nova compra</h2></div><button className="icon-button" onClick={() => setShowForm(false)} aria-label="Fechar"><X /></button></header><form className="order-form" onSubmit={save}>
-      <div className="form-grid purchase-header-grid"><label className="field"><span>Fornecedor *</span><input value={supplier} onChange={(event) => setSupplier(event.target.value)} required /></label><label className="field"><span>Data *</span><input type="date" value={date} onChange={(event) => setDate(event.target.value)} required /></label></div>
+      <div className="form-grid purchase-header-grid"><label className="field"><span>Fornecedor *</span><select value={supplierId} onChange={(event)=>{setSupplierId(event.target.value);setSupplier(suppliers.find(item=>item.id===event.target.value)?.name??"");}} required><option value="">Selecione um fornecedor cadastrado</option>{suppliers.map(item=><option value={item.id} key={item.id}>{item.name}{item.paymentTermsDays?` · ${item.paymentTermsDays} dias`:""}</option>)}</select></label><label className="field"><span>Data *</span><input type="date" value={date} onChange={(event) => setDate(event.target.value)} required /></label></div>
       <fieldset className="form-section purchase-items"><legend><ShoppingCart size={18} /> Itens da compra</legend><div className="purchase-editor-head"><span>Produto</span><span>Quantidade</span><span>Custo unitário</span><span>Total</span><span></span></div>{items.map((item) => { const itemTotal = (Number(item.quantity) || 0) * (Number(item.unitCost) || 0); return <div className="purchase-editor-row" key={item.key}><input list="purchase-products" value={item.productName} onChange={(event) => chooseProduct(item, event.target.value)} placeholder="Busque um produto" required /><input type="number" min="0.001" step="0.001" value={item.quantity} onChange={(event) => setItems((current) => current.map((entry) => entry.key === item.key ? { ...entry, quantity: event.target.value } : entry))} aria-label="Quantidade" /><input type="number" min="0" step="0.01" value={item.unitCost} onChange={(event) => setItems((current) => current.map((entry) => entry.key === item.key ? { ...entry, unitCost: event.target.value } : entry))} aria-label="Custo unitário" /><strong>{currency.format(itemTotal)}</strong><button type="button" className="remove-item" disabled={items.length === 1} onClick={() => setItems((current) => current.filter((entry) => entry.key !== item.key))}><Trash2 size={18} /></button></div>; })}<button className="add-item" type="button" onClick={() => { setItems((current) => [...current, blankItem(nextKey)]); setNextKey((current) => current + 1); }}><CirclePlus size={17} /> Adicionar produto</button></fieldset>
       <div className="purchase-total"><span>Total da compra</span><strong>{currency.format(total)}</strong></div>{error && <p className="form-error">{error}</p>}<footer className="modal-actions"><button className="secondary-button" type="button" onClick={() => setShowForm(false)}>Cancelar</button><button className="primary-button" disabled={saving}>{saving ? <LoaderCircle className="spin" size={18} /> : <Save size={18} />}{saving ? "Registrando..." : "Registrar compra"}</button></footer>
       <datalist id="purchase-products">{products.map((product) => <option key={product.id} value={product.name}>{currency.format(product.costPrice)} · estoque {product.stock}</option>)}</datalist>

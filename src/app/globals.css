@@ -404,3 +404,10 @@ h3 { font-size: 20px; }
   .inventory-tabs { width: 100%; }
   .inventory-tabs button { flex: 1; }
 }
+
+.financial-groups { display: grid; gap: 18px; }
+.financial-group { padding: 0; overflow: hidden; }
+.financial-group > header { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 20px 22px; border-bottom: 1px solid var(--line); }
+.financial-group > header h2 { margin: 3px 0; font-size: 1.08rem; }
+.financial-group > header small { color: var(--muted); }
+.group-actions, .header-button-group { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }

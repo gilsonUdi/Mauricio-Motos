@@ -3,6 +3,7 @@ import { getPool } from "@/lib/db";
 import { sessionCookie, permissionIds } from "@/lib/auth-shared";
 import { verifySessionToken } from "@/lib/auth-token";
 import { ensureFinancialSchema } from "@/lib/financial-schema";
+import { ensureCatalogSchema } from "@/lib/catalog-schema";
 export { permissionIds, sessionCookie, hasPermission } from "@/lib/auth-shared";
 export type { Permission, SessionUser } from "@/lib/auth-shared";
 export { createSessionToken, verifySessionToken } from "@/lib/auth-token";
@@ -40,6 +41,7 @@ export async function ensureAuthSchema() {
         END LOOP;
       END $$;`);
     await ensureFinancialSchema(pool);
+    await ensureCatalogSchema(pool);
     const email = process.env.AUTH_ADMIN_EMAIL?.trim().toLowerCase();
     const password = process.env.AUTH_ADMIN_PASSWORD;
     if (email && password) await pool.query(

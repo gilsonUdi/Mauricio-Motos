@@ -27,9 +27,13 @@ export async function GET(_request: Request, context: Context) {
         ? pool.query(`SELECT id::text, name FROM app_live.customers WHERE company_id=$1::uuid ORDER BY name`, [scope.companyId])
         : Promise.resolve({ rows: [] }),
     ]);
+    const suppliers = entity === "products"
+      ? await pool.query(`SELECT id::text,name FROM app_live.suppliers WHERE company_id=$1::uuid AND active ORDER BY name`,[scope.companyId])
+      : { rows: [] };
     return NextResponse.json({
       records: records.rows.map((row) => mapRegistryRecord(entity, row)),
       customers: customers.rows,
+      suppliers: suppliers.rows,
     });
   } catch (error) {
     console.error(`Falha ao carregar cadastro ${entity}`, error);
@@ -49,7 +53,7 @@ export async function POST(request: Request, context: Context) {
   catch { return NextResponse.json({ error: "Dados inválidos." }, { status: 400 }); }
 
   const name = cleanText(body.name);
-  if ((entity === "customers" || entity === "products" || entity === "mechanics") && !name) {
+  if ((entity === "customers" || entity === "products" || entity === "mechanics" || entity === "suppliers") && !name) {
     return NextResponse.json({ error: "Informe o nome." }, { status: 400 });
   }
   const plate = cleanText(body.plate)?.toUpperCase();
@@ -82,10 +86,21 @@ export async function POST(request: Request, context: Context) {
       const margin = body.profitMargin === "" || body.profitMargin === null || body.profitMargin === undefined
         ? (cost > 0 ? ((sale - cost) / cost) * 100 : 0)
         : numberValue(body.profitMargin);
+      const supplierId=cleanText(body.supplierId);
+      if(supplierId&&(!uuidPattern.test(supplierId)||!(await client.query(`SELECT 1 FROM app_live.suppliers WHERE id=$1::uuid AND company_id=$2::uuid`,[supplierId,scope.companyId])).rowCount)) throw new Error("SUPPLIER_NOT_FOUND");
       inserted = await client.query(
-        `INSERT INTO app_live.products (company_id,name,type,cost_price,sale_price,profit_margin_percent,current_stock,active)
-         VALUES ($1::uuid,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-        [scope.companyId,name, cleanText(body.type), cost, sale, margin, numberValue(body.stock), booleanValue(body.active)],
+        `INSERT INTO app_live.products
+         (company_id,name,type,cost_price,sale_price,profit_margin_percent,current_stock,active,sku,barcode,item_kind,ncm,cest,fiscal_origin,commercial_unit,default_cfop,tax_code,tax_rate,brand,supplier_id,minimum_stock,lead_time_days,stock_location)
+         VALUES ($1::uuid,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,COALESCE($15,'UN'),$16,$17,$18,$19,$20::uuid,$21,$22,$23) RETURNING *`,
+        [scope.companyId,name,cleanText(body.type),cost,sale,margin,numberValue(body.stock),booleanValue(body.active),cleanText(body.sku),cleanText(body.barcode),body.itemKind==="SERVICO"?"SERVICO":"PRODUTO",cleanText(body.ncm),cleanText(body.cest),cleanText(body.fiscalOrigin),cleanText(body.commercialUnit),cleanText(body.defaultCfop),cleanText(body.taxCode),Math.max(0,numberValue(body.taxRate)),cleanText(body.brand),supplierId,Math.max(0,numberValue(body.minimumStock)),Math.max(0,Math.trunc(numberValue(body.leadTimeDays))),cleanText(body.stockLocation)],
+      );
+      inserted.rows[0].supplier_name=supplierId?(await client.query(`SELECT name FROM app_live.suppliers WHERE id=$1::uuid`,[supplierId])).rows[0]?.name:null;
+    } else if (entity === "suppliers") {
+      inserted=await client.query(
+        `INSERT INTO app_live.suppliers
+         (company_id,name,legal_name,document,state_registration,phone,email,zip_code,street,address_number,complement,district,city,state,payment_terms_days,notes,active)
+         VALUES($1::uuid,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
+        [scope.companyId,name,cleanText(body.legalName),cleanText(body.document)?.replace(/\D/g,""),cleanText(body.stateRegistration),cleanText(body.phone),cleanText(body.email)?.toLowerCase(),cleanText(body.zipCode)?.replace(/\D/g,""),cleanText(body.street),cleanText(body.addressNumber),cleanText(body.complement),cleanText(body.district),cleanText(body.city),cleanText(body.state)?.toUpperCase(),Math.max(0,Math.trunc(numberValue(body.paymentTermsDays))),cleanText(body.notes),booleanValue(body.active)],
       );
     } else {
       inserted = await client.query(
@@ -104,7 +119,8 @@ export async function POST(request: Request, context: Context) {
   } catch (error) {
     await client.query("ROLLBACK");
     console.error(`Falha ao criar cadastro ${entity}`, error);
-    return NextResponse.json({ error: "Não foi possível salvar o cadastro." }, { status: 500 });
+    const message=error instanceof Error&&error.message==="SUPPLIER_NOT_FOUND"?"Fornecedor inválido.":error instanceof Error&&"code" in error&&error.code==="23505"?"Já existe um cadastro com este documento ou código.":"Não foi possível salvar o cadastro.";
+    return NextResponse.json({ error: message }, { status: message==="Não foi possível salvar o cadastro."?500:409 });
   } finally {
     client.release();
   }

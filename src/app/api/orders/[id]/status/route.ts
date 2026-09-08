@@ -50,7 +50,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
          FROM app_live.work_order_items i
          JOIN app_live.products p ON p.id = i.product_id
          WHERE i.work_order_id = $1::uuid
-           AND lower(concat_ws(' ', i.item_type, p.type)) NOT LIKE '%serv%'
+           AND COALESCE(p.item_kind,CASE WHEN lower(concat_ws(' ',i.item_type,p.type)) LIKE '%serv%' THEN 'SERVICO' ELSE 'PRODUTO' END)<>'SERVICO'
          GROUP BY i.product_id, p.name
          ORDER BY i.product_id`,
         [id],

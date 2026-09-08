@@ -24,7 +24,7 @@ export async function PATCH(request: Request, context: Context) {
   catch { return NextResponse.json({ error: "Dados inválidos." }, { status: 400 }); }
 
   const name = cleanText(body.name);
-  if ((entity === "customers" || entity === "products" || entity === "mechanics") && !name) {
+  if ((entity === "customers" || entity === "products" || entity === "mechanics" || entity === "suppliers") && !name) {
     return NextResponse.json({ error: "Informe o nome." }, { status: 400 });
   }
   const plate = cleanText(body.plate)?.toUpperCase();
@@ -57,10 +57,22 @@ export async function PATCH(request: Request, context: Context) {
       const margin = body.profitMargin === "" || body.profitMargin === null || body.profitMargin === undefined
         ? (cost > 0 ? ((sale - cost) / cost) * 100 : 0)
         : numberValue(body.profitMargin);
+      const supplierId=cleanText(body.supplierId);
+      if(supplierId&&(!uuidPattern.test(supplierId)||!(await client.query(`SELECT 1 FROM app_live.suppliers WHERE id=$1::uuid AND company_id=$2::uuid`,[supplierId,scope.companyId])).rowCount)) throw new Error("SUPPLIER_NOT_FOUND");
       updated = await client.query(
-        `UPDATE app_live.products SET name=$2, type=$3, cost_price=$4, sale_price=$5, profit_margin_percent=$6, current_stock=$7, active=$8
-         WHERE id=$1::uuid AND company_id=$9::uuid RETURNING *`,
-        [id, name, cleanText(body.type), cost, sale, margin, numberValue(body.stock), booleanValue(body.active),scope.companyId],
+        `UPDATE app_live.products SET name=$2,type=$3,cost_price=$4,sale_price=$5,profit_margin_percent=$6,current_stock=$7,active=$8,
+         sku=$9,barcode=$10,item_kind=$11,ncm=$12,cest=$13,fiscal_origin=$14,commercial_unit=COALESCE($15,'UN'),default_cfop=$16,
+         tax_code=$17,tax_rate=$18,brand=$19,supplier_id=$20::uuid,minimum_stock=$21,lead_time_days=$22,stock_location=$23
+         WHERE id=$1::uuid AND company_id=$24::uuid RETURNING *`,
+        [id,name,cleanText(body.type),cost,sale,margin,numberValue(body.stock),booleanValue(body.active),cleanText(body.sku),cleanText(body.barcode),body.itemKind==="SERVICO"?"SERVICO":"PRODUTO",cleanText(body.ncm),cleanText(body.cest),cleanText(body.fiscalOrigin),cleanText(body.commercialUnit),cleanText(body.defaultCfop),cleanText(body.taxCode),Math.max(0,numberValue(body.taxRate)),cleanText(body.brand),supplierId,Math.max(0,numberValue(body.minimumStock)),Math.max(0,Math.trunc(numberValue(body.leadTimeDays))),cleanText(body.stockLocation),scope.companyId],
+      );
+      updated.rows[0].supplier_name=supplierId?(await client.query(`SELECT name FROM app_live.suppliers WHERE id=$1::uuid`,[supplierId])).rows[0]?.name:null;
+    } else if (entity === "suppliers") {
+      updated=await client.query(
+        `UPDATE app_live.suppliers SET name=$2,legal_name=$3,document=$4,state_registration=$5,phone=$6,email=$7,zip_code=$8,street=$9,
+         address_number=$10,complement=$11,district=$12,city=$13,state=$14,payment_terms_days=$15,notes=$16,active=$17
+         WHERE id=$1::uuid AND company_id=$18::uuid RETURNING *`,
+        [id,name,cleanText(body.legalName),cleanText(body.document)?.replace(/\D/g,""),cleanText(body.stateRegistration),cleanText(body.phone),cleanText(body.email)?.toLowerCase(),cleanText(body.zipCode)?.replace(/\D/g,""),cleanText(body.street),cleanText(body.addressNumber),cleanText(body.complement),cleanText(body.district),cleanText(body.city),cleanText(body.state)?.toUpperCase(),Math.max(0,Math.trunc(numberValue(body.paymentTermsDays))),cleanText(body.notes),booleanValue(body.active),scope.companyId],
       );
     } else {
       updated = await client.query(
@@ -83,7 +95,8 @@ export async function PATCH(request: Request, context: Context) {
   } catch (error) {
     await client.query("ROLLBACK");
     console.error(`Falha ao editar cadastro ${entity}`, error);
-    return NextResponse.json({ error: "Não foi possível atualizar o cadastro." }, { status: 500 });
+    const message=error instanceof Error&&error.message==="SUPPLIER_NOT_FOUND"?"Fornecedor inválido.":error instanceof Error&&"code" in error&&error.code==="23505"?"Já existe um cadastro com este documento ou código.":"Não foi possível atualizar o cadastro.";
+    return NextResponse.json({ error: message }, { status: message==="Não foi possível atualizar o cadastro."?500:409 });
   } finally {
     client.release();
   }

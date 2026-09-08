@@ -1,6 +1,6 @@
-export type RegistryEntity = "customers" | "vehicles" | "products" | "mechanics";
+export type RegistryEntity = "customers" | "vehicles" | "products" | "mechanics" | "suppliers";
 
-export const registryEntities = new Set<RegistryEntity>(["customers", "vehicles", "products", "mechanics"]);
+export const registryEntities = new Set<RegistryEntity>(["customers", "vehicles", "products", "mechanics", "suppliers"]);
 
 export function isRegistryEntity(value: string): value is RegistryEntity {
   return registryEntities.has(value as RegistryEntity);
@@ -18,12 +18,19 @@ export const registryListSql: Record<RegistryEntity, string> = {
     WHERE v.company_id=$1::uuid
     ORDER BY v.plate`,
   products: `
-    SELECT id::text, name, type, cost_price, sale_price, profit_margin_percent,
-           current_stock, active, updated_at
-    FROM app_live.products WHERE company_id=$1::uuid ORDER BY active DESC, name`,
+    SELECT p.id::text,p.name,p.type,p.cost_price,p.sale_price,p.profit_margin_percent,
+           p.current_stock,p.active,p.updated_at,p.sku,p.barcode,p.item_kind,p.ncm,p.cest,
+           p.fiscal_origin,p.commercial_unit,p.default_cfop,p.tax_code,p.tax_rate,p.brand,
+           p.supplier_id::text,s.name AS supplier_name,p.minimum_stock,p.lead_time_days,p.stock_location
+    FROM app_live.products p LEFT JOIN app_live.suppliers s ON s.id=p.supplier_id AND s.company_id=p.company_id
+    WHERE p.company_id=$1::uuid ORDER BY p.active DESC,p.name`,
   mechanics: `
     SELECT id::text, name, commission_percent, active, updated_at
     FROM app_live.mechanics WHERE company_id=$1::uuid ORDER BY active DESC, name`,
+  suppliers: `
+    SELECT id::text,name,legal_name,document,state_registration,phone,email,zip_code,street,
+           address_number,complement,district,city,state,payment_terms_days,notes,active,updated_at
+    FROM app_live.suppliers WHERE company_id=$1::uuid ORDER BY active DESC,name`,
 };
 
 export function mapRegistryRecord(entity: RegistryEntity, row: Record<string, unknown>) {
@@ -40,6 +47,19 @@ export function mapRegistryRecord(entity: RegistryEntity, row: Record<string, un
     id: String(row.id), name: row.name, type: row.type,
     costPrice: Number(row.cost_price ?? 0), salePrice: Number(row.sale_price ?? 0),
     profitMargin: Number(row.profit_margin_percent ?? 0), stock: Number(row.current_stock ?? 0),
+    active: Boolean(row.active), updatedAt: row.updated_at,
+    sku: row.sku, barcode: row.barcode, itemKind: row.item_kind, ncm: row.ncm, cest: row.cest,
+    fiscalOrigin: row.fiscal_origin, commercialUnit: row.commercial_unit, defaultCfop: row.default_cfop,
+    taxCode: row.tax_code, taxRate: Number(row.tax_rate ?? 0), brand: row.brand,
+    supplierId: row.supplier_id, supplierName: row.supplier_name,
+    minimumStock: Number(row.minimum_stock ?? 0), leadTimeDays: Number(row.lead_time_days ?? 0), stockLocation: row.stock_location,
+  };
+  if (entity === "suppliers") return {
+    id: String(row.id), name: row.name, legalName: row.legal_name, document: row.document,
+    stateRegistration: row.state_registration, phone: row.phone, email: row.email, zipCode: row.zip_code,
+    street: row.street, addressNumber: row.address_number, complement: row.complement,
+    district: row.district, city: row.city, state: row.state,
+    paymentTermsDays: Number(row.payment_terms_days ?? 0), notes: row.notes,
     active: Boolean(row.active), updatedAt: row.updated_at,
   };
   return {

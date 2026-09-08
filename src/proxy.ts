@@ -6,9 +6,11 @@ const rules: Array<[RegExp, Permission]> = [
   [/^\/$/, "atendimento"], [/^\/api\/orders/, "atendimento"],
   [/^\/compras/, "compras"], [/^\/api\/purchases/, "compras"],
   [/^\/receber/, "receber"], [/^\/conferencia/, "conferencia"],
-  [/^\/financeiro/, "financeiro"], [/^\/api\/finance/, "financeiro"],
+  [/^\/financeiro/, "financeiro"], [/^\/api\/finance(?:\/|$)/, "financeiro"],
   [/^\/estoque/, "estoque"], [/^\/api\/inventory/, "estoque"],
   [/^\/clientes/, "clientes"], [/^\/veiculos/, "veiculos"], [/^\/produtos/, "produtos"], [/^\/mecanicos/, "mecanicos"],
+  [/^\/fornecedores/, "fornecedores"], [/^\/api\/registries\/suppliers/, "fornecedores"],
+  [/^\/categorias-financeiras/, "categorias_financeiras"], [/^\/api\/financial-categories/, "categorias_financeiras"],
   [/^\/api\/registries\/customers/, "clientes"], [/^\/api\/registries\/vehicles/, "veiculos"], [/^\/api\/registries\/products/, "produtos"], [/^\/api\/registries\/mechanics/, "mecanicos"],
   [/^\/usuarios/, "usuarios"], [/^\/api\/users/, "usuarios"],
 ];

@@ -1,6 +1,6 @@
 "use client";
 
-import { Bike, LoaderCircle, Menu, PackagePlus, Pencil, Plus, Save, Search, UserRoundCog, Users, Wrench, X } from "lucide-react";
+import { Bike, Building2, LoaderCircle, Menu, PackagePlus, Pencil, Plus, Save, Search, UserRoundCog, Users, Wrench, X } from "lucide-react";
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -8,13 +8,15 @@ import type { RegistryEntity } from "@/lib/registries";
 
 type RegistryRecord = { id: string; [key: string]: unknown };
 type CustomerOption = { id: string; name: string };
+type SupplierOption = { id: string; name: string };
 type FieldDefinition = {
   key: string;
   label: string;
-  type?: "text" | "number" | "checkbox" | "customer";
+  type?: "text" | "number" | "checkbox" | "customer" | "supplier" | "select";
   required?: boolean;
   step?: string;
   placeholder?: string;
+  options?: Array<{ value: string; label: string }>;
 };
 type ColumnDefinition = { key: string; label: string; format?: "money" | "percent" | "number" | "status" };
 
@@ -64,15 +66,31 @@ const configs: Record<RegistryEntity, {
     description: "Catálogo, preços e saldo atual usados na montagem dos orçamentos.",
     fields: [
       { key: "name", label: "Nome", required: true },
-      { key: "type", label: "Tipo", placeholder: "Produto ou Serviço" },
+      { key: "itemKind", label: "Natureza", type: "select", options: [{value:"PRODUTO",label:"Produto"},{value:"SERVICO",label:"Serviço"}] },
+      { key: "type", label: "Categoria/Tipo", placeholder: "Ex.: Peça, óleo ou mão de obra" },
+      { key: "sku", label: "Código interno (SKU)" },
+      { key: "barcode", label: "Código de barras" },
+      { key: "brand", label: "Marca" },
+      { key: "supplierId", label: "Fornecedor principal", type: "supplier" },
       { key: "costPrice", label: "Preço de custo", type: "number", step: "0.01" },
       { key: "salePrice", label: "Preço de venda", type: "number", step: "0.01" },
       { key: "profitMargin", label: "Margem (%)", type: "number", step: "0.01", placeholder: "Calculada se ficar vazia" },
       { key: "stock", label: "Estoque atual", type: "number", step: "0.001" },
+      { key: "minimumStock", label: "Estoque mínimo", type: "number", step: "0.001" },
+      { key: "leadTimeDays", label: "Prazo de reposição (dias)", type: "number", step: "1" },
+      { key: "stockLocation", label: "Localização no estoque" },
+      { key: "ncm", label: "NCM" },
+      { key: "cest", label: "CEST" },
+      { key: "fiscalOrigin", label: "Origem fiscal" },
+      { key: "commercialUnit", label: "Unidade comercial", placeholder: "UN" },
+      { key: "defaultCfop", label: "CFOP padrão" },
+      { key: "taxCode", label: "CST/CSOSN" },
+      { key: "taxRate", label: "Alíquota padrão (%)", type: "number", step: "0.0001" },
       { key: "active", label: "Cadastro ativo", type: "checkbox" },
     ],
     columns: [
-      { key: "name", label: "Descrição" }, { key: "type", label: "Tipo" },
+      { key: "name", label: "Descrição" }, { key: "itemKind", label: "Natureza" },
+      { key: "sku", label: "SKU" },
       { key: "salePrice", label: "Venda", format: "money" }, { key: "stock", label: "Estoque", format: "number" },
       { key: "active", label: "Situação", format: "status" },
     ],
@@ -90,6 +108,33 @@ const configs: Record<RegistryEntity, {
       { key: "active", label: "Situação", format: "status" },
     ],
   },
+  suppliers: {
+    title: "Fornecedores", singular: "fornecedor", icon: Building2,
+    description: "Fornecedores utilizados nas compras, obrigações e reposições de estoque.",
+    fields: [
+      { key: "name", label: "Nome fantasia", required: true },
+      { key: "legalName", label: "Razão social" },
+      { key: "document", label: "CNPJ/CPF" },
+      { key: "stateRegistration", label: "Inscrição estadual" },
+      { key: "phone", label: "Telefone" },
+      { key: "email", label: "E-mail" },
+      { key: "zipCode", label: "CEP" },
+      { key: "street", label: "Logradouro" },
+      { key: "addressNumber", label: "Número" },
+      { key: "complement", label: "Complemento" },
+      { key: "district", label: "Bairro" },
+      { key: "city", label: "Cidade" },
+      { key: "state", label: "UF" },
+      { key: "paymentTermsDays", label: "Prazo padrão (dias)", type: "number", step: "1" },
+      { key: "notes", label: "Observações" },
+      { key: "active", label: "Cadastro ativo", type: "checkbox" },
+    ],
+    columns: [
+      { key: "name", label: "Fornecedor" }, { key: "document", label: "CNPJ/CPF" },
+      { key: "phone", label: "Telefone" }, { key: "city", label: "Cidade" },
+      { key: "state", label: "UF" }, { key: "active", label: "Situação", format: "status" },
+    ],
+  },
 };
 
 function displayValue(value: unknown, format?: ColumnDefinition["format"]) {
@@ -104,7 +149,7 @@ function initialForm(entity: RegistryEntity, record?: RegistryRecord) {
   const result: Record<string, string | boolean> = {};
   for (const field of configs[entity].fields) {
     const value = record?.[field.key];
-    result[field.key] = field.type === "checkbox" ? (record ? Boolean(value) : true) : value === null || value === undefined ? "" : String(value);
+    result[field.key] = field.type === "checkbox" ? (record ? Boolean(value) : true) : value === null || value === undefined ? (field.type === "select" ? field.options?.[0]?.value ?? "" : "") : String(value);
   }
   return result;
 }
@@ -114,6 +159,7 @@ export function RegistryPage({ entity }: { entity: RegistryEntity }) {
   const Icon = config.icon;
   const [records, setRecords] = useState<RegistryRecord[]>([]);
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
+  const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [visibleLimit, setVisibleLimit] = useState(80);
@@ -132,6 +178,7 @@ export function RegistryPage({ entity }: { entity: RegistryEntity }) {
         if (!response.ok) throw new Error(payload.error ?? "Não foi possível carregar o cadastro.");
         setRecords(payload.records as RegistryRecord[]);
         setCustomers(payload.customers as CustomerOption[] ?? []);
+        setSuppliers(payload.suppliers as SupplierOption[] ?? []);
       })
       .catch((caught) => {
         if (caught instanceof Error && caught.name !== "AbortError") setError(caught.message);
@@ -185,7 +232,7 @@ export function RegistryPage({ entity }: { entity: RegistryEntity }) {
           <div><p className="eyebrow">CADASTROS</p><h1>{config.title}</h1><p className="page-description">{config.description}</p></div>
           <button className="primary-button" onClick={() => openForm(null)}><Plus size={18} /> Novo {config.singular}</button>
         </header>
-        {mobileMenu && <div className="mobile-shortcuts registry-shortcuts"><Link href="/">Atendimento</Link><Link href="/clientes">Clientes</Link><Link href="/veiculos">Veículos</Link><Link href="/produtos">Produtos</Link><Link href="/mecanicos">Mecânicos</Link></div>}
+        {mobileMenu && <div className="mobile-shortcuts registry-shortcuts"><Link href="/">Atendimento</Link><Link href="/clientes">Clientes</Link><Link href="/veiculos">Veículos</Link><Link href="/produtos">Produtos</Link><Link href="/mecanicos">Mecânicos</Link><Link href="/fornecedores">Fornecedores</Link><Link href="/categorias-financeiras">Categorias financeiras</Link></div>}
 
         <section className="registry-summary">
           <div><Icon size={22} /><span>Total cadastrado</span><strong>{records.length}</strong></div>
@@ -223,6 +270,10 @@ export function RegistryPage({ entity }: { entity: RegistryEntity }) {
                 <label className="checkbox-field" key={field.key}><input type="checkbox" checked={Boolean(form[field.key])} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.checked }))} /><span>{field.label}</span></label>
               ) : field.type === "customer" ? (
                 <label className="field span-2" key={field.key}><span>{field.label}</span><select value={String(form[field.key] ?? "")} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))}><option value="">Sem cliente vinculado</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></label>
+              ) : field.type === "supplier" ? (
+                <label className="field span-2" key={field.key}><span>{field.label}</span><select value={String(form[field.key] ?? "")} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))}><option value="">Sem fornecedor vinculado</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></label>
+              ) : field.type === "select" ? (
+                <label className="field" key={field.key}><span>{field.label}{field.required ? " *" : ""}</span><select required={field.required} value={String(form[field.key] ?? field.options?.[0]?.value ?? "")} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))}>{field.options?.map((option)=><option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
               ) : (
                 <label className={`field ${field.key === "name" ? "span-2" : ""}`} key={field.key}><span>{field.label}{field.required ? " *" : ""}</span><input type={field.type ?? "text"} min={field.type === "number" ? "0" : undefined} step={field.step} required={field.required} value={String(form[field.key] ?? "")} placeholder={field.placeholder} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))} /></label>
               ))}

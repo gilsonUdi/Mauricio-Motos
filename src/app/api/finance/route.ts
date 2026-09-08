@@ -18,7 +18,7 @@ export async function GET(request: Request) {
   const scope=await getTenantScope(); if(!scope)return NextResponse.json({error:"Selecione uma empresa."},{status:403});
   const { from, to } = period(new URL(request.url).searchParams);
   try {
-    const [transactions, totals, categories, receivables] = await Promise.all([
+    const [transactions, totals, categories, receivables,availableCategories] = await Promise.all([
       pool.query(`
         SELECT id::text, transaction_date::text AS date, description, movement, account_type, account_group, amount
         FROM app_live.financial_transactions
@@ -37,6 +37,7 @@ export async function GET(request: Request) {
                COALESCE(SUM(CASE WHEN payment_date IS NULL AND due_date < CURRENT_DATE AND upper(COALESCE(status,'')) NOT LIKE '%CANC%' THEN COALESCE(open_amount,amount) ELSE 0 END),0) AS overdue_amount,
                COUNT(*) FILTER (WHERE payment_date IS NULL AND due_date < CURRENT_DATE AND upper(COALESCE(status,'')) NOT LIKE '%CANC%')::integer AS overdue_count
         FROM app_live.receivables WHERE company_id=$1::uuid`,[scope.companyId]),
+      pool.query(`SELECT c.id::text,c.name,c.nature,g.name AS group_name FROM app_live.financial_categories c JOIN app_live.financial_category_groups g ON g.id=c.group_id WHERE c.company_id=$1::uuid AND c.active AND g.active ORDER BY g.name,c.name`,[scope.companyId]),
     ]);
     const income = Number(totals.rows[0].income);
     const expense = Number(totals.rows[0].expense);
@@ -44,6 +45,7 @@ export async function GET(request: Request) {
       period: { from, to }, summary: { income, expense, result: income - expense, openAmount: Number(receivables.rows[0].open_amount), overdueAmount: Number(receivables.rows[0].overdue_amount), overdueCount: Number(receivables.rows[0].overdue_count) },
       transactions: transactions.rows.map((row) => ({ id: row.id, date: row.date, description: row.description, movement: row.movement, type: row.account_type, category: row.account_group, amount: Number(row.amount) })),
       categories: categories.rows.map((row) => ({ movement: row.movement, category: row.category, total: Number(row.total) })),
+      availableCategories:availableCategories.rows.map((row)=>({id:row.id,name:row.name,nature:row.nature,groupName:row.group_name})),
     });
   } catch (error) {
     console.error("Falha ao carregar financeiro", error);
@@ -63,17 +65,20 @@ export async function POST(request: Request) {
   const amount = Math.round(Math.max(0, Number(body.amount) || 0) * 100) / 100;
   const date = typeof body.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.date) ? body.date : null;
   const category = typeof body.category === "string" ? body.category.trim() || "Não classificado" : "Não classificado";
+  const categoryId=typeof body.categoryId==="string"&&/^[0-9a-f-]{36}$/i.test(body.categoryId)?body.categoryId:null;
   if (!description || !movement || !date || amount <= 0) return NextResponse.json({ error: "Preencha data, descrição, movimento e valor." }, { status: 400 });
 
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    let selectedCategory:{id:string;name:string}|null=null;
+    if(categoryId){const found=await client.query(`SELECT id::text,name,nature FROM app_live.financial_categories WHERE id=$1::uuid AND company_id=$2::uuid AND active`,[categoryId,scope.companyId]);if(!found.rowCount)throw new Error("CATEGORY_NOT_FOUND");if(found.rows[0].nature!=="AMBOS"&&found.rows[0].nature!==(movement==="ENTRADA"?"RECEITA":"DESPESA"))throw new Error("CATEGORY_NATURE");selectedCategory=found.rows[0];}
     const inserted = await client.query(
       `INSERT INTO app_live.financial_transactions
-       (company_id,legacy_finance_key,transaction_date,competence_date,description,movement,account_type,account_group,amount,source_type,affects_drg)
-       VALUES ($1::uuid,$2,$3::date,$3::date,$4,$5,'LANCAMENTO_MANUAL',$6,$7,'MANUAL',true)
+       (company_id,legacy_finance_key,transaction_date,competence_date,description,movement,account_type,account_group,amount,source_type,affects_drg,category_id)
+       VALUES ($1::uuid,$2,$3::date,$3::date,$4,$5,'LANCAMENTO_MANUAL',$6,$7,'MANUAL',true,$8::uuid)
        RETURNING id::text`,
-      [scope.companyId,`manual:${randomUUID()}`, date, description, movement, category, amount],
+      [scope.companyId,`manual:${randomUUID()}`, date, description, movement, selectedCategory?.name??category, amount,selectedCategory?.id??null],
     );
     const categoryResult = await client.query(
       `SELECT id FROM app_live.financial_categories
@@ -84,7 +89,7 @@ export async function POST(request: Request) {
       `INSERT INTO app_live.financial_events
        (company_id,event_key,event_type,source_type,source_id,category_id,competence_date,description,amount,affects_drg)
        VALUES ($1::uuid,$2,$3,'MANUAL',$4::uuid,$5::uuid,$6::date,$7,$8,true)`,
-      [scope.companyId,`manual:${inserted.rows[0].id}`,movement === "ENTRADA" ? "RECEITA" : "DESPESA",inserted.rows[0].id,categoryResult.rows[0]?.id??null,date,description,amount],
+      [scope.companyId,`manual:${inserted.rows[0].id}`,movement === "ENTRADA" ? "RECEITA" : "DESPESA",inserted.rows[0].id,selectedCategory?.id??categoryResult.rows[0]?.id??null,date,description,amount],
     );
     await client.query(
       `INSERT INTO app_live.audit_log (entity_type, entity_id, action, details) VALUES ('financial_transaction', $1::uuid, 'created', $2::jsonb)`,
@@ -95,6 +100,6 @@ export async function POST(request: Request) {
   } catch (error) {
     await client.query("ROLLBACK");
     console.error("Falha ao criar lançamento financeiro", error);
-    return NextResponse.json({ error: "Não foi possível criar o lançamento." }, { status: 500 });
+    const known=error instanceof Error?error.message:"";return NextResponse.json({ error: known==="CATEGORY_NOT_FOUND"?"Categoria financeira inválida.":known==="CATEGORY_NATURE"?"A natureza da categoria não corresponde ao movimento.":"Não foi possível criar o lançamento." }, { status: known==="CATEGORY_NOT_FOUND"||known==="CATEGORY_NATURE"?400:500 });
   } finally { client.release(); }
 }

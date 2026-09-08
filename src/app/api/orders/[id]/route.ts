@@ -118,7 +118,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       let type = clean(item.type) ?? "Produto/Serviço";
       const unitPrice = money(item.unitPrice);
       if (productId) {
-        const product = await client.query(`SELECT name,type FROM app_live.products WHERE id=$1::uuid AND active AND company_id=$2::uuid`, [productId,scope.companyId]);
+        const product = await client.query(`SELECT name,CASE WHEN item_kind='SERVICO' THEN 'Serviço' ELSE COALESCE(type,'Produto') END AS type FROM app_live.products WHERE id=$1::uuid AND active AND company_id=$2::uuid`, [productId,scope.companyId]);
         if (!product.rowCount) throw new Error("PRODUCT_NOT_FOUND");
         name = product.rows[0].name;
         type = product.rows[0].type ?? type;
