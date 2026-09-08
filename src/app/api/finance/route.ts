@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { getPool } from "@/lib/db";
+import { getTenantScope } from "@/lib/auth";
 
 function period(searchParams: URLSearchParams) {
   const now = new Date();
@@ -14,27 +15,28 @@ function period(searchParams: URLSearchParams) {
 export async function GET(request: Request) {
   const pool = getPool();
   if (!pool) return NextResponse.json({ error: "Banco não configurado." }, { status: 503 });
+  const scope=await getTenantScope(); if(!scope)return NextResponse.json({error:"Selecione uma empresa."},{status:403});
   const { from, to } = period(new URL(request.url).searchParams);
   try {
     const [transactions, totals, categories, receivables] = await Promise.all([
       pool.query(`
         SELECT id::text, transaction_date::text AS date, description, movement, account_type, account_group, amount
         FROM app_live.financial_transactions
-        WHERE transaction_date BETWEEN $1::date AND $2::date
-        ORDER BY transaction_date DESC, created_at DESC LIMIT 1500`, [from, to]),
+        WHERE company_id=$3::uuid AND transaction_date BETWEEN $1::date AND $2::date
+        ORDER BY transaction_date DESC, created_at DESC LIMIT 1500`, [from, to,scope.companyId]),
       pool.query(`
         SELECT COALESCE(SUM(CASE WHEN movement='ENTRADA' THEN amount ELSE 0 END),0) AS income,
                COALESCE(SUM(CASE WHEN movement='SAIDA' THEN amount ELSE 0 END),0) AS expense
-        FROM app_live.financial_transactions WHERE transaction_date BETWEEN $1::date AND $2::date`, [from, to]),
+        FROM app_live.financial_transactions WHERE company_id=$3::uuid AND transaction_date BETWEEN $1::date AND $2::date`, [from, to,scope.companyId]),
       pool.query(`
         SELECT movement, COALESCE(account_group,'Não classificado') AS category, SUM(amount) AS total
-        FROM app_live.financial_transactions WHERE transaction_date BETWEEN $1::date AND $2::date
-        GROUP BY movement, COALESCE(account_group,'Não classificado') ORDER BY SUM(amount) DESC`, [from, to]),
+        FROM app_live.financial_transactions WHERE company_id=$3::uuid AND transaction_date BETWEEN $1::date AND $2::date
+        GROUP BY movement, COALESCE(account_group,'Não classificado') ORDER BY SUM(amount) DESC`, [from,to,scope.companyId]),
       pool.query(`
         SELECT COALESCE(SUM(CASE WHEN payment_date IS NULL AND upper(COALESCE(status,'')) NOT LIKE '%CANC%' THEN amount ELSE 0 END),0) AS open_amount,
                COALESCE(SUM(CASE WHEN payment_date IS NULL AND due_date < CURRENT_DATE AND upper(COALESCE(status,'')) NOT LIKE '%CANC%' THEN amount ELSE 0 END),0) AS overdue_amount,
                COUNT(*) FILTER (WHERE payment_date IS NULL AND due_date < CURRENT_DATE AND upper(COALESCE(status,'')) NOT LIKE '%CANC%')::integer AS overdue_count
-        FROM app_live.receivables`),
+        FROM app_live.receivables WHERE company_id=$1::uuid`,[scope.companyId]),
     ]);
     const income = Number(totals.rows[0].income);
     const expense = Number(totals.rows[0].expense);
@@ -52,6 +54,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const pool = getPool();
   if (!pool) return NextResponse.json({ error: "Banco não configurado." }, { status: 503 });
+  const scope=await getTenantScope(); if(!scope)return NextResponse.json({error:"Selecione uma empresa."},{status:403});
   let body: Record<string, unknown>;
   try { body = await request.json() as Record<string, unknown>; }
   catch { return NextResponse.json({ error: "Dados inválidos." }, { status: 400 }); }
@@ -67,10 +70,10 @@ export async function POST(request: Request) {
     await client.query("BEGIN");
     const inserted = await client.query(
       `INSERT INTO app_live.financial_transactions
-       (legacy_finance_key, transaction_date, description, movement, account_type, account_group, amount)
-       VALUES ($1, $2::date, $3, $4, 'LANCAMENTO_MANUAL', $5, $6)
+       (company_id,legacy_finance_key,transaction_date,description,movement,account_type,account_group,amount)
+       VALUES ($1::uuid,$2,$3::date,$4,$5,'LANCAMENTO_MANUAL',$6,$7)
        RETURNING id::text`,
-      [`manual:${randomUUID()}`, date, description, movement, category, amount],
+      [scope.companyId,`manual:${randomUUID()}`, date, description, movement, category, amount],
     );
     await client.query(
       `INSERT INTO app_live.audit_log (entity_type, entity_id, action, details) VALUES ('financial_transaction', $1::uuid, 'created', $2::jsonb)`,

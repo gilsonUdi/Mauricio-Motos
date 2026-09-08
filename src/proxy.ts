@@ -22,6 +22,11 @@ export function proxy(request: NextRequest) {
     if (path.startsWith("/api/")) return NextResponse.json({ error: "Sessão expirada." }, { status: 401 });
     const login = new URL("/login", request.url); login.searchParams.set("returnTo", path); return NextResponse.redirect(login);
   }
+  if (user.role === "SUPER_ADMIN" && !path.startsWith("/admin") && !path.startsWith("/api/admin")) return NextResponse.redirect(new URL("/admin/empresas", request.url));
+  if ((path.startsWith("/admin") || path.startsWith("/api/admin")) && user.role !== "SUPER_ADMIN") {
+    if (path.startsWith("/api/")) return NextResponse.json({ error: "Acesso restrito ao administrador da plataforma." }, { status: 403 });
+    return NextResponse.redirect(new URL("/sem-acesso", request.url));
+  }
   if (path.startsWith("/api/receivables") && !hasPermission(user, "receber") && !hasPermission(user, "conferencia")) return NextResponse.json({ error: "Você não tem acesso a esta área." }, { status: 403 });
   const permission = rules.find(([pattern]) => pattern.test(path))?.[1];
   if (permission && !hasPermission(user, permission)) {

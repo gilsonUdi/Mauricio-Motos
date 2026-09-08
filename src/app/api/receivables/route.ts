@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { getPool } from "@/lib/db";
 import { uuidPattern } from "@/lib/registries";
+import { getTenantScope } from "@/lib/auth";
 
 export async function GET() {
   const pool = getPool();
   if (!pool) return NextResponse.json({ error: "Banco não configurado." }, { status: 503 });
+  const scope=await getTenantScope(); if(!scope)return NextResponse.json({error:"Selecione uma empresa."},{status:403});
   try {
     const [receivables, customers, orders] = await Promise.all([
       pool.query(`
@@ -17,11 +19,12 @@ export async function GET() {
                     WHEN r.due_date < CURRENT_DATE THEN 'VENCIDO'
                     ELSE 'PENDENTE' END AS display_status
         FROM app_live.receivables r
-        LEFT JOIN app_live.work_orders o ON o.id = r.work_order_id
+        LEFT JOIN app_live.work_orders o ON o.id=r.work_order_id AND o.company_id=r.company_id
+        WHERE r.company_id=$1::uuid
         ORDER BY COALESCE(r.payment_date, r.due_date) DESC NULLS LAST, r.created_at DESC
-        LIMIT 1500`),
-      pool.query(`SELECT id::text, name FROM app_live.customers ORDER BY name`),
-      pool.query(`SELECT id::text, order_number, customer_id::text, customer_name, total_value FROM app_live.work_orders WHERE status IN ('PEDIDO','VENDA_REALIZADA') ORDER BY COALESCE(sale_date,budget_date) DESC NULLS LAST LIMIT 500`),
+        LIMIT 1500`,[scope.companyId]),
+      pool.query(`SELECT id::text,name FROM app_live.customers WHERE company_id=$1::uuid ORDER BY name`,[scope.companyId]),
+      pool.query(`SELECT id::text,order_number,customer_id::text,customer_name,total_value FROM app_live.work_orders WHERE company_id=$1::uuid AND status IN ('PEDIDO','VENDA_REALIZADA') ORDER BY COALESCE(sale_date,budget_date) DESC NULLS LAST LIMIT 500`,[scope.companyId]),
     ]);
     return NextResponse.json({
       receivables: receivables.rows.map((row) => ({
@@ -42,6 +45,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const pool = getPool();
   if (!pool) return NextResponse.json({ error: "Banco não configurado." }, { status: 503 });
+  const scope=await getTenantScope(); if(!scope)return NextResponse.json({error:"Selecione uma empresa."},{status:403});
   let body: Record<string, unknown>;
   try { body = await request.json() as Record<string, unknown>; }
   catch { return NextResponse.json({ error: "Dados inválidos." }, { status: 400 }); }
@@ -57,13 +61,13 @@ export async function POST(request: Request) {
   try {
     await client.query("BEGIN");
     if (workOrderId) {
-      const order = await client.query(`SELECT customer_id::text, customer_name, total_value FROM app_live.work_orders WHERE id=$1::uuid`, [workOrderId]);
+      const order = await client.query(`SELECT customer_id::text,customer_name,total_value FROM app_live.work_orders WHERE id=$1::uuid AND company_id=$2::uuid`, [workOrderId,scope.companyId]);
       if (!order.rowCount) throw new Error("ORDER_NOT_FOUND");
       customerId = order.rows[0].customer_id;
       customerName = order.rows[0].customer_name;
       if (!amount) amount = Number(order.rows[0].total_value);
     } else if (customerId) {
-      const customer = await client.query(`SELECT name FROM app_live.customers WHERE id=$1::uuid`, [customerId]);
+      const customer = await client.query(`SELECT name FROM app_live.customers WHERE id=$1::uuid AND company_id=$2::uuid`, [customerId,scope.companyId]);
       if (!customer.rowCount) throw new Error("CUSTOMER_NOT_FOUND");
       customerName = customer.rows[0].name;
     }
@@ -71,10 +75,10 @@ export async function POST(request: Request) {
     if (amount <= 0) throw new Error("AMOUNT_REQUIRED");
 
     const inserted = await client.query(
-      `INSERT INTO app_live.receivables (work_order_id, customer_id, customer_name, due_date, amount, status, notes)
-       VALUES ($1::uuid, $2::uuid, $3, $4::date, $5, 'PENDENTE', $6)
+      `INSERT INTO app_live.receivables (company_id,work_order_id,customer_id,customer_name,due_date,amount,status,notes)
+       VALUES ($1::uuid,$2::uuid,$3::uuid,$4,$5::date,$6,'PENDENTE',$7)
        RETURNING id::text`,
-      [workOrderId, customerId, customerName, dueDate, amount, typeof body.notes === "string" ? body.notes.trim() || null : null],
+      [scope.companyId,workOrderId, customerId, customerName, dueDate, amount, typeof body.notes === "string" ? body.notes.trim() || null : null],
     );
     await client.query(
       `INSERT INTO app_live.audit_log (entity_type, entity_id, action, details) VALUES ('receivable', $1::uuid, 'created', $2::jsonb)`,

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getPool } from "@/lib/db";
 import type { OrderStatus, WorkOrder } from "@/lib/types";
+import { getTenantScope } from "@/lib/auth";
 
 type ItemInput = { productId?: string; name?: string; type?: string; quantity?: number; unitPrice?: number };
 type OrderInput = {
@@ -27,6 +28,7 @@ const money = (value: unknown) => Math.round(Math.max(0, Number(value) || 0) * 1
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const pool = getPool();
   if (!pool) return NextResponse.json({ error: "Banco não configurado." }, { status: 503 });
+  const scope = await getTenantScope(); if (!scope) return NextResponse.json({ error: "Selecione uma empresa." }, { status: 403 });
 
   const { id } = await context.params;
   if (!validUuid(id)) return NextResponse.json({ error: "Orçamento inválido." }, { status: 400 });
@@ -46,8 +48,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     await client.query("BEGIN");
     const current = await client.query(
       `SELECT order_number, status, total_value, customer_name, payment_method
-       FROM app_live.work_orders WHERE id = $1::uuid FOR UPDATE`,
-      [id],
+       FROM app_live.work_orders WHERE id=$1::uuid AND company_id=$2::uuid FOR UPDATE`,
+      [id,scope.companyId],
     );
     if (!current.rowCount) throw new Error("ORDER_NOT_FOUND");
     if (current.rows[0].status !== "ORCAMENTO") throw new Error("ORDER_LOCKED");
@@ -56,15 +58,15 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     let customerName = clean(body.customerName);
     let customerPhone = clean(body.customerPhone);
     if (customerId) {
-      const customer = await client.query(`SELECT name, phone FROM app_live.customers WHERE id = $1::uuid`, [customerId]);
+      const customer = await client.query(`SELECT name,phone FROM app_live.customers WHERE id=$1::uuid AND company_id=$2::uuid`, [customerId,scope.companyId]);
       if (!customer.rowCount) throw new Error("CUSTOMER_NOT_FOUND");
       customerName = customer.rows[0].name;
       customerPhone = customer.rows[0].phone ?? customerPhone;
     } else {
       if (!customerName) throw new Error("CUSTOMER_REQUIRED");
       const inserted = await client.query(
-        `INSERT INTO app_live.customers (name, phone, document) VALUES ($1, $2, $3) RETURNING id::text`,
-        [customerName, customerPhone ?? null, clean(body.customerDocument) ?? null],
+        `INSERT INTO app_live.customers (company_id,name,phone,document) VALUES ($1::uuid,$2,$3,$4) RETURNING id::text`,
+        [scope.companyId,customerName, customerPhone ?? null, clean(body.customerDocument) ?? null],
       );
       customerId = inserted.rows[0].id;
     }
@@ -74,7 +76,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     let mileage = Math.max(0, Math.trunc(Number(body.mileage) || 0)) || undefined;
     const vehicleId = validUuid(body.vehicleId);
     if (vehicleId) {
-      const vehicle = await client.query(`SELECT plate, description, mileage FROM app_live.vehicles WHERE id = $1::uuid`, [vehicleId]);
+      const vehicle = await client.query(`SELECT plate,description,mileage FROM app_live.vehicles WHERE id=$1::uuid AND company_id=$2::uuid`, [vehicleId,scope.companyId]);
       if (!vehicle.rowCount) throw new Error("VEHICLE_NOT_FOUND");
       plate = vehicle.rows[0].plate;
       model = vehicle.rows[0].description ?? model;
@@ -82,8 +84,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     } else if (plate) {
       const normalizedPlate = plate.replace(/[^A-Z0-9]/g, "");
       const existingVehicle = await client.query(
-        `SELECT id FROM app_live.vehicles WHERE customer_id = $1::uuid AND normalized_plate = $2 ORDER BY created_at DESC LIMIT 1`,
-        [customerId, normalizedPlate],
+        `SELECT id FROM app_live.vehicles WHERE customer_id=$1::uuid AND normalized_plate=$2 AND company_id=$3::uuid ORDER BY created_at DESC LIMIT 1`,
+        [customerId, normalizedPlate,scope.companyId],
       );
       if (existingVehicle.rowCount) {
         await client.query(
@@ -92,8 +94,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
         );
       } else {
         await client.query(
-          `INSERT INTO app_live.vehicles (customer_id, plate, normalized_plate, description, mileage) VALUES ($1::uuid, $2, $3, $4, $5)`,
-          [customerId, plate, normalizedPlate, model ?? null, mileage ?? null],
+          `INSERT INTO app_live.vehicles (company_id,customer_id,plate,normalized_plate,description,mileage) VALUES ($1::uuid,$2::uuid,$3,$4,$5,$6)`,
+          [scope.companyId,customerId, plate, normalizedPlate, model ?? null, mileage ?? null],
         );
       }
     }
@@ -101,7 +103,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     let mechanicId = validUuid(body.mechanicId);
     let mechanicName: string | undefined;
     if (mechanicId) {
-      const mechanic = await client.query(`SELECT name FROM app_live.mechanics WHERE id = $1::uuid AND active`, [mechanicId]);
+      const mechanic = await client.query(`SELECT name FROM app_live.mechanics WHERE id=$1::uuid AND active AND company_id=$2::uuid`, [mechanicId,scope.companyId]);
       if (!mechanic.rowCount) throw new Error("MECHANIC_NOT_FOUND");
       mechanicName = mechanic.rows[0].name;
     } else {
@@ -116,7 +118,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       let type = clean(item.type) ?? "Produto/Serviço";
       const unitPrice = money(item.unitPrice);
       if (productId) {
-        const product = await client.query(`SELECT name, type FROM app_live.products WHERE id = $1::uuid AND active`, [productId]);
+        const product = await client.query(`SELECT name,type FROM app_live.products WHERE id=$1::uuid AND active AND company_id=$2::uuid`, [productId,scope.companyId]);
         if (!product.rowCount) throw new Error("PRODUCT_NOT_FOUND");
         name = product.rows[0].name;
         type = product.rows[0].type ?? type;
@@ -136,9 +138,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
          customer_id = $2::uuid, customer_name = $3, mechanic_id = $4::uuid, mechanic_name = $5,
          budget_date = COALESCE($6::date, budget_date), discount_value = $7, total_value = $8,
          vehicle_plate = $9, vehicle_model = $10, mileage = $11, notes = $12, services_total = $13
-       WHERE id = $1::uuid
+       WHERE id=$1::uuid AND company_id=$14::uuid
        RETURNING order_number, status, budget_date::text, payment_method`,
-      [id, customerId, customerName, mechanicId ?? null, mechanicName ?? null, budgetDate, discount, total, plate ?? null, model ?? null, mileage ?? null, clean(body.notes) ?? null, servicesTotal],
+      [id, customerId, customerName, mechanicId ?? null, mechanicName ?? null, budgetDate, discount, total, plate ?? null, model ?? null, mileage ?? null, clean(body.notes) ?? null, servicesTotal,scope.companyId],
     );
 
     await client.query(`DELETE FROM app_live.work_order_items WHERE work_order_id = $1::uuid`, [id]);
@@ -155,9 +157,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     }
 
     await client.query(
-      `INSERT INTO app_live.audit_log (entity_type, entity_id, action, details)
-       VALUES ('work_order', $1::uuid, 'updated', $2::jsonb)`,
-      [id, JSON.stringify({ orderNumber: current.rows[0].order_number, previousTotal: Number(current.rows[0].total_value), total, previousCustomer: current.rows[0].customer_name, customer: customerName })],
+      `INSERT INTO app_live.audit_log (entity_type,entity_id,action,actor_id,details)
+       VALUES ('work_order',$1::uuid,'updated',$2::uuid,$3::jsonb)`,
+      [id,scope.user?.id??null,JSON.stringify({ orderNumber: current.rows[0].order_number, previousTotal: Number(current.rows[0].total_value), total, previousCustomer: current.rows[0].customer_name, customer: customerName,companyId:scope.companyId })],
     );
     await client.query("COMMIT");
 

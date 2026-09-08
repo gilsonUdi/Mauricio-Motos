@@ -9,20 +9,21 @@ export function isRegistryEntity(value: string): value is RegistryEntity {
 export const registryListSql: Record<RegistryEntity, string> = {
   customers: `
     SELECT id::text, name, document, phone, default_plate, default_model, updated_at
-    FROM app_live.customers ORDER BY name`,
+    FROM app_live.customers WHERE company_id=$1::uuid ORDER BY name`,
   vehicles: `
     SELECT v.id::text, v.customer_id::text, c.name AS customer_name, v.plate,
            v.description, v.brand, v.mileage, v.updated_at
     FROM app_live.vehicles v
-    LEFT JOIN app_live.customers c ON c.id = v.customer_id
+    LEFT JOIN app_live.customers c ON c.id = v.customer_id AND c.company_id=v.company_id
+    WHERE v.company_id=$1::uuid
     ORDER BY v.plate`,
   products: `
     SELECT id::text, name, type, cost_price, sale_price, profit_margin_percent,
            current_stock, active, updated_at
-    FROM app_live.products ORDER BY active DESC, name`,
+    FROM app_live.products WHERE company_id=$1::uuid ORDER BY active DESC, name`,
   mechanics: `
     SELECT id::text, name, commission_percent, active, updated_at
-    FROM app_live.mechanics ORDER BY active DESC, name`,
+    FROM app_live.mechanics WHERE company_id=$1::uuid ORDER BY active DESC, name`,
 };
 
 export function mapRegistryRecord(entity: RegistryEntity, row: Record<string, unknown>) {

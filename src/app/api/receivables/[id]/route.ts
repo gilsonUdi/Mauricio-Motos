@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { getPool } from "@/lib/db";
 import { uuidPattern } from "@/lib/registries";
+import { getTenantScope } from "@/lib/auth";
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const pool = getPool();
   if (!pool) return NextResponse.json({ error: "Banco não configurado." }, { status: 503 });
+  const scope=await getTenantScope(); if(!scope)return NextResponse.json({error:"Selecione uma empresa."},{status:403});
   const { id } = await context.params;
   if (!uuidPattern.test(id)) return NextResponse.json({ error: "Cobrança inválida." }, { status: 400 });
   let body: { action?: "PAY" | "REOPEN"; paymentDate?: string; paymentMethod?: string };
@@ -19,7 +21,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const receivable = await client.query(
       `SELECT r.customer_name, r.amount, r.payment_date, o.payment_method
        FROM app_live.receivables r LEFT JOIN app_live.work_orders o ON o.id=r.work_order_id
-       WHERE r.id=$1::uuid FOR UPDATE OF r`, [id],
+       WHERE r.id=$1::uuid AND r.company_id=$2::uuid FOR UPDATE OF r`, [id,scope.companyId],
     );
     if (!receivable.rowCount) throw new Error("NOT_FOUND");
     const row = receivable.rows[0];
@@ -28,14 +30,14 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       await client.query(`UPDATE app_live.receivables SET payment_date=COALESCE($2::date,CURRENT_DATE), status='PAGO' WHERE id=$1::uuid`, [id, paymentDate]);
       await client.query(
         `INSERT INTO app_live.financial_transactions
-         (legacy_finance_key, transaction_date, description, movement, account_type, account_group, amount)
-         VALUES ($1, COALESCE($2::date,CURRENT_DATE), $3, 'ENTRADA', 'RECEBIMENTO_CLIENTE', $4, $5)
+         (company_id,legacy_finance_key,transaction_date,description,movement,account_type,account_group,amount)
+         VALUES ($1::uuid,$2,COALESCE($3::date,CURRENT_DATE),$4,'ENTRADA','RECEBIMENTO_CLIENTE',$5,$6)
          ON CONFLICT (legacy_finance_key) DO UPDATE SET transaction_date=EXCLUDED.transaction_date, description=EXCLUDED.description, account_group=EXCLUDED.account_group, amount=EXCLUDED.amount`,
-        [`receivable:${id}`, paymentDate, `Recebimento - ${row.customer_name}`, method, row.amount],
+        [scope.companyId,`receivable:${id}`, paymentDate, `Recebimento - ${row.customer_name}`, method, row.amount],
       );
     } else {
       await client.query(`UPDATE app_live.receivables SET payment_date=NULL, status='PENDENTE' WHERE id=$1::uuid`, [id]);
-      await client.query(`DELETE FROM app_live.financial_transactions WHERE legacy_finance_key=$1`, [`receivable:${id}`]);
+      await client.query(`DELETE FROM app_live.financial_transactions WHERE legacy_finance_key=$1 AND company_id=$2::uuid`, [`receivable:${id}`,scope.companyId]);
     }
     await client.query(
       `INSERT INTO app_live.audit_log (entity_type, entity_id, action, details) VALUES ('receivable', $1::uuid, $2, $3::jsonb)`,

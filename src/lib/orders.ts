@@ -23,7 +23,7 @@ type OrderRow = {
   items: Array<{ id: string; productId?: string; name: string; type: string; quantity: number; unitPrice: number; total: number }> | null;
 };
 
-export async function getDashboardData(): Promise<DashboardData> {
+export async function getDashboardData(companyId: string): Promise<DashboardData> {
   const pool = getPool();
   if (!pool) return { connected: false, orders: fixtureOrders };
 
@@ -64,10 +64,11 @@ export async function getDashboardData(): Promise<DashboardData> {
       FROM app_live.work_orders o
       LEFT JOIN app_live.customers c ON c.id = o.customer_id
       LEFT JOIN app_live.work_order_items i ON i.work_order_id = o.id
+      WHERE o.company_id = $1::uuid
       GROUP BY o.id, c.phone
       ORDER BY COALESCE(o.sale_date, o.budget_date) DESC NULLS LAST, o.created_at DESC
       LIMIT 150
-    `);
+    `, [companyId]);
 
     const orders: WorkOrder[] = result.rows.map((row) => ({
       id: row.id,

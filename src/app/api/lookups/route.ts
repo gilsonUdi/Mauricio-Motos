@@ -1,19 +1,21 @@
 import { NextResponse } from "next/server";
 import { getPool } from "@/lib/db";
 import type { OrderLookups } from "@/lib/types";
+import { getTenantScope } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   const pool = getPool();
   if (!pool) return NextResponse.json({ error: "Banco não configurado." }, { status: 503 });
+  const scope = await getTenantScope(); if (!scope) return NextResponse.json({ error: "Selecione uma empresa." }, { status: 403 });
 
   try {
     const [customers, vehicles, products, mechanics] = await Promise.all([
-      pool.query(`SELECT id::text, name, phone, document FROM app_live.customers ORDER BY name`),
-      pool.query(`SELECT id::text, customer_id::text, plate, description AS model, mileage FROM app_live.vehicles ORDER BY plate`),
-      pool.query(`SELECT id::text, name, type, COALESCE(sale_price, 0) AS sale_price FROM app_live.products WHERE active ORDER BY name`),
-      pool.query(`SELECT id::text, name FROM app_live.mechanics WHERE active ORDER BY name`),
+      pool.query(`SELECT id::text,name,phone,document FROM app_live.customers WHERE company_id=$1::uuid ORDER BY name`,[scope.companyId]),
+      pool.query(`SELECT id::text,customer_id::text,plate,description AS model,mileage FROM app_live.vehicles WHERE company_id=$1::uuid ORDER BY plate`,[scope.companyId]),
+      pool.query(`SELECT id::text,name,type,COALESCE(sale_price,0) AS sale_price FROM app_live.products WHERE active AND company_id=$1::uuid ORDER BY name`,[scope.companyId]),
+      pool.query(`SELECT id::text,name FROM app_live.mechanics WHERE active AND company_id=$1::uuid ORDER BY name`,[scope.companyId]),
     ]);
 
     const data: OrderLookups = {

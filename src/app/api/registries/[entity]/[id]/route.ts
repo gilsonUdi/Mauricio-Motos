@@ -8,6 +8,7 @@ import {
   numberValue,
   uuidPattern,
 } from "@/lib/registries";
+import { getTenantScope } from "@/lib/auth";
 
 type Context = { params: Promise<{ entity: string; id: string }> };
 
@@ -16,6 +17,7 @@ export async function PATCH(request: Request, context: Context) {
   if (!pool) return NextResponse.json({ error: "Banco não configurado." }, { status: 503 });
   const { entity, id } = await context.params;
   if (!isRegistryEntity(entity) || !uuidPattern.test(id)) return NextResponse.json({ error: "Cadastro inválido." }, { status: 404 });
+  const scope = await getTenantScope(); if (!scope) return NextResponse.json({ error: "Selecione uma empresa." }, { status: 403 });
 
   let body: Record<string, unknown>;
   try { body = await request.json() as Record<string, unknown>; }
@@ -37,17 +39,17 @@ export async function PATCH(request: Request, context: Context) {
     if (entity === "customers") {
       updated = await client.query(
         `UPDATE app_live.customers SET name=$2, document=$3, phone=$4, default_plate=$5, default_model=$6
-         WHERE id=$1::uuid RETURNING *`,
-        [id, name, cleanText(body.document), cleanText(body.phone), cleanText(body.defaultPlate)?.toUpperCase() ?? null, cleanText(body.defaultModel)],
+         WHERE id=$1::uuid AND company_id=$7::uuid RETURNING *`,
+        [id, name, cleanText(body.document), cleanText(body.phone), cleanText(body.defaultPlate)?.toUpperCase() ?? null, cleanText(body.defaultModel),scope.companyId],
       );
     } else if (entity === "vehicles") {
       updated = await client.query(
         `UPDATE app_live.vehicles SET customer_id=$2::uuid, plate=$3, normalized_plate=$4, description=$5, brand=$6, mileage=$7
-         WHERE id=$1::uuid RETURNING *`,
-        [id, customerId, plate, plate!.replace(/[^A-Z0-9]/g, ""), cleanText(body.model), cleanText(body.brand), Math.max(0, Math.trunc(numberValue(body.mileage)))],
+         WHERE id=$1::uuid AND company_id=$8::uuid RETURNING *`,
+        [id, customerId, plate, plate!.replace(/[^A-Z0-9]/g, ""), cleanText(body.model), cleanText(body.brand), Math.max(0, Math.trunc(numberValue(body.mileage))),scope.companyId],
       );
       if (updated.rowCount) updated.rows[0].customer_name = customerId
-        ? (await client.query(`SELECT name FROM app_live.customers WHERE id = $1::uuid`, [customerId])).rows[0]?.name ?? null
+        ? (await client.query(`SELECT name FROM app_live.customers WHERE id=$1::uuid AND company_id=$2::uuid`, [customerId,scope.companyId])).rows[0]?.name ?? null
         : null;
     } else if (entity === "products") {
       const cost = Math.max(0, numberValue(body.costPrice));
@@ -57,13 +59,13 @@ export async function PATCH(request: Request, context: Context) {
         : numberValue(body.profitMargin);
       updated = await client.query(
         `UPDATE app_live.products SET name=$2, type=$3, cost_price=$4, sale_price=$5, profit_margin_percent=$6, current_stock=$7, active=$8
-         WHERE id=$1::uuid RETURNING *`,
-        [id, name, cleanText(body.type), cost, sale, margin, numberValue(body.stock), booleanValue(body.active)],
+         WHERE id=$1::uuid AND company_id=$9::uuid RETURNING *`,
+        [id, name, cleanText(body.type), cost, sale, margin, numberValue(body.stock), booleanValue(body.active),scope.companyId],
       );
     } else {
       updated = await client.query(
-        `UPDATE app_live.mechanics SET name=$2, commission_percent=$3, active=$4 WHERE id=$1::uuid RETURNING *`,
-        [id, name, Math.max(0, numberValue(body.commissionPercent)), booleanValue(body.active)],
+        `UPDATE app_live.mechanics SET name=$2, commission_percent=$3, active=$4 WHERE id=$1::uuid AND company_id=$5::uuid RETURNING *`,
+        [id, name, Math.max(0, numberValue(body.commissionPercent)), booleanValue(body.active),scope.companyId],
       );
     }
 

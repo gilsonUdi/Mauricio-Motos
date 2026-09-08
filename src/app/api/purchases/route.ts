@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { getPool } from "@/lib/db";
 import { uuidPattern } from "@/lib/registries";
+import { getTenantScope } from "@/lib/auth";
 
 type PurchaseItem = { productId?: string; quantity?: number; unitCost?: number };
 type PurchaseInput = { supplier?: string; date?: string; items?: PurchaseItem[] };
@@ -12,6 +13,7 @@ const validDate = (value?: string) => /^\d{4}-\d{2}-\d{2}$/.test(value ?? "") ? 
 export async function GET() {
   const pool = getPool();
   if (!pool) return NextResponse.json({ error: "Banco não configurado." }, { status: 503 });
+  const scope=await getTenantScope(); if(!scope)return NextResponse.json({error:"Selecione uma empresa."},{status:403});
   try {
     const [purchases, products] = await Promise.all([
       pool.query(`
@@ -21,11 +23,11 @@ export async function GET() {
         FROM app_live.financial_transactions f
         LEFT JOIN app_live.inventory_movements m
           ON m.legacy_movement_key LIKE f.legacy_finance_key || ':%'
-        WHERE f.account_type = 'COMPRA_ESTOQUE'
+        WHERE f.account_type='COMPRA_ESTOQUE' AND f.company_id=$1::uuid
         GROUP BY f.id
         ORDER BY f.transaction_date DESC NULLS LAST, f.created_at DESC
-        LIMIT 500`),
-      pool.query(`SELECT id::text, name, type, cost_price, current_stock FROM app_live.products WHERE active AND lower(COALESCE(type, '')) NOT LIKE '%serv%' ORDER BY name`),
+        LIMIT 500`,[scope.companyId]),
+      pool.query(`SELECT id::text,name,type,cost_price,current_stock FROM app_live.products WHERE active AND company_id=$1::uuid AND lower(COALESCE(type,'')) NOT LIKE '%serv%' ORDER BY name`,[scope.companyId]),
     ]);
     return NextResponse.json({
       purchases: purchases.rows.map((row) => ({
@@ -45,6 +47,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const pool = getPool();
   if (!pool) return NextResponse.json({ error: "Banco não configurado." }, { status: 503 });
+  const scope=await getTenantScope(); if(!scope)return NextResponse.json({error:"Selecione uma empresa."},{status:403});
   let body: PurchaseInput;
   try { body = await request.json() as PurchaseInput; }
   catch { return NextResponse.json({ error: "Dados inválidos." }, { status: 400 }); }
@@ -80,8 +83,8 @@ export async function POST(request: Request) {
       const product = await client.query(
         `SELECT name, COALESCE(cost_price, 0) AS cost_price, COALESCE(sale_price, 0) AS sale_price,
                 COALESCE(current_stock, 0) AS current_stock
-         FROM app_live.products WHERE id = $1::uuid AND active FOR UPDATE`,
-        [productId],
+         FROM app_live.products WHERE id=$1::uuid AND active AND company_id=$2::uuid FOR UPDATE`,
+        [productId,scope.companyId],
       );
       if (!product.rowCount) throw new Error("PRODUCT_NOT_FOUND");
       const currentStock = Number(product.rows[0].current_stock);
@@ -102,18 +105,18 @@ export async function POST(request: Request) {
     const total = money(prepared.reduce((sum, item) => sum + item.quantity * item.unitCost, 0));
     const finance = await client.query(
       `INSERT INTO app_live.financial_transactions
-       (legacy_finance_key, transaction_date, description, movement, account_type, account_group, amount)
-       VALUES ($1, COALESCE($2::date, CURRENT_DATE), $3, 'SAIDA', 'COMPRA_ESTOQUE', 'ESTOQUE', $4)
+       (company_id,legacy_finance_key,transaction_date,description,movement,account_type,account_group,amount)
+       VALUES ($1::uuid,$2,COALESCE($3::date,CURRENT_DATE),$4,'SAIDA','COMPRA_ESTOQUE','ESTOQUE',$5)
        RETURNING id::text, transaction_date::text`,
-      [purchaseKey, date, supplier, total],
+      [scope.companyId,purchaseKey,date,supplier,total],
     );
     for (let index = 0; index < prepared.length; index += 1) {
       const item = prepared[index];
       await client.query(
         `INSERT INTO app_live.inventory_movements
-         (legacy_movement_key, product_id, movement_date, movement_type, quantity, party_name, balance_after)
-         VALUES ($1, $2::uuid, COALESCE($3::date, CURRENT_DATE), 'COMPRA', $4, $5, $6)`,
-        [`${purchaseKey}:${index + 1}`, item.productId, date, item.quantity, supplier, item.balance],
+         (company_id,legacy_movement_key,product_id,movement_date,movement_type,quantity,party_name,balance_after)
+         VALUES ($1::uuid,$2,$3::uuid,COALESCE($4::date,CURRENT_DATE),'COMPRA',$5,$6,$7)`,
+        [scope.companyId,`${purchaseKey}:${index + 1}`, item.productId, date, item.quantity, supplier, item.balance],
       );
     }
     await client.query(

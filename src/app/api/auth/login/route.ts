@@ -10,12 +10,13 @@ export async function POST(request: Request) {
   try {
     await ensureAuthSchema(); const pool = getPool()!;
     const found = await pool.query(
-      `SELECT id::text,name,email,role,permissions FROM app_live.app_users
-       WHERE lower(email)=$1 AND active AND password_hash=crypt($2,password_hash) LIMIT 1`, [email, body.password],
+      `SELECT u.id::text,u.name,u.email,u.role,u.permissions,u.company_id::text,c.name AS company_name FROM app_live.app_users u
+       LEFT JOIN app_live.companies c ON c.id=u.company_id
+       WHERE lower(u.email)=$1 AND u.active AND COALESCE(c.active,true) AND u.password_hash=crypt($2,u.password_hash) LIMIT 1`, [email, body.password],
     );
     if (!found.rowCount) return NextResponse.json({ error: "E-mail ou senha incorretos." }, { status: 401 });
     const row = found.rows[0]; const permissions = (row.permissions as string[]).filter((item): item is Permission => permissionIds.includes(item as Permission));
-    const token = createSessionToken({ id: row.id, name: row.name, email: row.email, role: row.role, permissions });
+    const token = createSessionToken({ id: row.id, name: row.name, email: row.email, role: row.role, permissions, companyId: row.company_id, companyName: row.company_name });
     await pool.query(`UPDATE app_live.app_users SET last_login_at=now(),updated_at=now() WHERE id=$1::uuid`, [row.id]);
     const response = NextResponse.json({ ok: true });
     response.cookies.set(sessionCookie, token, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: 12 * 60 * 60 });

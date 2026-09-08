@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getPool } from "@/lib/db";
 import type { WorkOrder } from "@/lib/types";
+import { getTenantScope } from "@/lib/auth";
 
 type ItemInput = {
   productId?: string;
@@ -36,6 +37,7 @@ const money = (value: unknown) => Math.round(Math.max(0, Number(value) || 0) * 1
 export async function POST(request: Request) {
   const pool = getPool();
   if (!pool) return NextResponse.json({ error: "Banco não configurado." }, { status: 503 });
+  const scope = await getTenantScope(); if (!scope) return NextResponse.json({ error: "Selecione uma empresa." }, { status: 403 });
 
   let body: OrderInput;
   try {
@@ -57,15 +59,15 @@ export async function POST(request: Request) {
     let customerPhone = clean(body.customerPhone);
 
     if (customerId) {
-      const found = await client.query(`SELECT name, phone FROM app_live.customers WHERE id = $1::uuid`, [customerId]);
+      const found = await client.query(`SELECT name,phone FROM app_live.customers WHERE id=$1::uuid AND company_id=$2::uuid`, [customerId,scope.companyId]);
       if (!found.rowCount) throw new Error("CUSTOMER_NOT_FOUND");
       customerName = found.rows[0].name;
       customerPhone = found.rows[0].phone ?? customerPhone;
     } else {
       if (!customerName) throw new Error("CUSTOMER_REQUIRED");
       const inserted = await client.query(
-        `INSERT INTO app_live.customers (name, phone, document) VALUES ($1, $2, $3) RETURNING id::text`,
-        [customerName, customerPhone ?? null, clean(body.customerDocument) ?? null],
+        `INSERT INTO app_live.customers (company_id,name,phone,document) VALUES ($1::uuid,$2,$3,$4) RETURNING id::text`,
+        [scope.companyId,customerName, customerPhone ?? null, clean(body.customerDocument) ?? null],
       );
       customerId = inserted.rows[0].id;
     }
@@ -77,8 +79,8 @@ export async function POST(request: Request) {
 
     if (vehicleId) {
       const found = await client.query(
-        `SELECT plate, description, mileage FROM app_live.vehicles WHERE id = $1::uuid`,
-        [vehicleId],
+        `SELECT plate,description,mileage FROM app_live.vehicles WHERE id=$1::uuid AND company_id=$2::uuid`,
+        [vehicleId,scope.companyId],
       );
       if (!found.rowCount) throw new Error("VEHICLE_NOT_FOUND");
       plate = found.rows[0].plate;
@@ -86,16 +88,16 @@ export async function POST(request: Request) {
       mileage = mileage ?? found.rows[0].mileage ?? undefined;
     } else if (plate) {
       await client.query(
-        `INSERT INTO app_live.vehicles (customer_id, plate, normalized_plate, description, mileage)
-         VALUES ($1::uuid, $2, $3, $4, $5)`,
-        [customerId, plate, plate.replace(/[^A-Z0-9]/g, ""), model ?? null, mileage ?? null],
+        `INSERT INTO app_live.vehicles (company_id,customer_id,plate,normalized_plate,description,mileage)
+         VALUES ($1::uuid,$2::uuid,$3,$4,$5,$6)`,
+        [scope.companyId,customerId, plate, plate.replace(/[^A-Z0-9]/g, ""), model ?? null, mileage ?? null],
       );
     }
 
     let mechanicId = validUuid(body.mechanicId);
     let mechanicName: string | undefined;
     if (mechanicId) {
-      const found = await client.query(`SELECT name FROM app_live.mechanics WHERE id = $1::uuid AND active`, [mechanicId]);
+      const found = await client.query(`SELECT name FROM app_live.mechanics WHERE id=$1::uuid AND active AND company_id=$2::uuid`, [mechanicId,scope.companyId]);
       if (!found.rowCount) throw new Error("MECHANIC_NOT_FOUND");
       mechanicName = found.rows[0].name;
     } else {
@@ -112,8 +114,8 @@ export async function POST(request: Request) {
 
       if (productId) {
         const product = await client.query(
-          `SELECT name, type, COALESCE(sale_price, 0) AS sale_price FROM app_live.products WHERE id = $1::uuid AND active`,
-          [productId],
+          `SELECT name,type,COALESCE(sale_price,0) AS sale_price FROM app_live.products WHERE id=$1::uuid AND active AND company_id=$2::uuid`,
+          [productId,scope.companyId],
         );
         if (!product.rowCount) throw new Error("PRODUCT_NOT_FOUND");
         name = product.rows[0].name;
@@ -132,23 +134,23 @@ export async function POST(request: Request) {
       .reduce((sum, item) => sum + item.quantity * item.unitPrice, 0));
     const budgetDate = /^\d{4}-\d{2}-\d{2}$/.test(body.budgetDate ?? "") ? body.budgetDate : null;
 
-    await client.query(`SELECT pg_advisory_xact_lock(hashtext('app_live.work_order_number:' || to_char(CURRENT_DATE, 'YYYYMM')))`);
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext('app_live.work_order_number:' || $1::text || ':' || to_char(CURRENT_DATE, 'YYYYMM')))`,[scope.companyId]);
     const sequence = await client.query(`
       SELECT to_char(CURRENT_DATE, 'YYYYMM') AS prefix, COALESCE(MAX(
         CASE WHEN substring(order_number FROM 7) ~ '^[0-9]+$' THEN substring(order_number FROM 7)::integer ELSE 0 END
       ), 0) + 1 AS next_number
       FROM app_live.work_orders
-      WHERE order_number LIKE to_char(CURRENT_DATE, 'YYYYMM') || '%'
-    `);
+      WHERE company_id=$1::uuid AND order_number LIKE to_char(CURRENT_DATE, 'YYYYMM') || '%'
+    `,[scope.companyId]);
     const orderNumber = `${sequence.rows[0].prefix}${String(sequence.rows[0].next_number).padStart(3, "0")}`;
 
     const insertedOrder = await client.query(
       `INSERT INTO app_live.work_orders (
-        order_number, customer_id, customer_name, mechanic_id, mechanic_name, budget_date,
+        company_id,order_number, customer_id, customer_name, mechanic_id, mechanic_name, budget_date,
         status, discount_value, total_value, vehicle_plate, vehicle_model, mileage, notes, services_total
-      ) VALUES ($1, $2::uuid, $3, $4::uuid, $5, COALESCE($6::date, CURRENT_DATE), 'ORCAMENTO', $7, $8, $9, $10, $11, $12, $13)
+      ) VALUES ($1::uuid,$2,$3::uuid,$4,$5::uuid,$6,COALESCE($7::date,CURRENT_DATE),'ORCAMENTO',$8,$9,$10,$11,$12,$13,$14)
       RETURNING id::text, budget_date::text`,
-      [orderNumber, customerId, customerName, mechanicId ?? null, mechanicName ?? null, budgetDate, discount, total, plate ?? null, model ?? null, mileage ?? null, clean(body.notes) ?? null, servicesTotal],
+      [scope.companyId,orderNumber, customerId, customerName, mechanicId ?? null, mechanicName ?? null, budgetDate, discount, total, plate ?? null, model ?? null, mileage ?? null, clean(body.notes) ?? null, servicesTotal],
     );
     const orderId = insertedOrder.rows[0].id;
 
@@ -165,9 +167,9 @@ export async function POST(request: Request) {
     }
 
     await client.query(
-      `INSERT INTO app_live.audit_log (entity_type, entity_id, action, details)
-       VALUES ('work_order', $1::uuid, 'created', jsonb_build_object('order_number', $2::text, 'total', $3::numeric))`,
-      [orderId, orderNumber, total],
+      `INSERT INTO app_live.audit_log (entity_type,entity_id,action,actor_id,details)
+       VALUES ('work_order',$1::uuid,'created',$2::uuid,jsonb_build_object('order_number',$3::text,'total',$4::numeric,'company_id',$5::text))`,
+      [orderId,scope.user?.id??null,orderNumber,total,scope.companyId],
     );
     await client.query("COMMIT");
 

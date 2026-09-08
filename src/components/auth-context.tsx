@@ -2,7 +2,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import type { Permission } from "@/lib/auth-shared";
 
-type AuthUser = { id: string; name: string; email: string; role: string; permissions: Permission[] };
+type AuthUser = { id: string; name: string; email: string; role: string; permissions: Permission[]; companyId:string|null; companyName?:string|null };
 type AuthState = { enabled: boolean; user: AuthUser | null; loading: boolean };
 const AuthContext = createContext<AuthState>({ enabled: false, user: null, loading: true });
 export function AuthProvider({ children }: { children: React.ReactNode }) {

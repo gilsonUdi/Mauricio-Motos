@@ -39,6 +39,7 @@ export function AppSidebar({ active }: { active: string }) {
   return (
     <aside className="sidebar">
       <Link className="brand-mark" href="/" aria-label="Início"><Wrench size={22} /><span>MM</span></Link>
+      {enabled && user?.companyName && <span className="tenant-name" title={user.companyName}>{user.companyName}</span>}
       <nav aria-label="Navegação principal">
         {visibleEntries.map(({ id, label, icon: Icon, href }) => href ? (
           <Link className={`nav-button ${active === id ? "active" : ""}`} href={href} key={id} title={label}>

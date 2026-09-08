@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getPool } from "@/lib/db";
 import { uuidPattern } from "@/lib/registries";
+import { getTenantScope } from "@/lib/auth";
 
 type AdjustmentInput = { productId?: string; type?: "ENTRADA" | "SAIDA" | "AJUSTE"; quantity?: number; date?: string; partyName?: string };
 const validTypes = new Set(["ENTRADA", "SAIDA", "AJUSTE"]);
@@ -8,16 +9,18 @@ const validTypes = new Set(["ENTRADA", "SAIDA", "AJUSTE"]);
 export async function GET() {
   const pool = getPool();
   if (!pool) return NextResponse.json({ error: "Banco não configurado." }, { status: 503 });
+  const scope=await getTenantScope(); if(!scope)return NextResponse.json({error:"Selecione uma empresa."},{status:403});
   try {
     const [products, movements] = await Promise.all([
-      pool.query(`SELECT id::text, name, type, cost_price, sale_price, current_stock, active FROM app_live.products WHERE lower(COALESCE(type, '')) NOT LIKE '%serv%' ORDER BY active DESC, name`),
+      pool.query(`SELECT id::text,name,type,cost_price,sale_price,current_stock,active FROM app_live.products WHERE company_id=$1::uuid AND lower(COALESCE(type,'')) NOT LIKE '%serv%' ORDER BY active DESC,name`,[scope.companyId]),
       pool.query(`
         SELECT m.id::text, m.product_id::text, p.name AS product_name, m.movement_date::text AS date,
                m.movement_type AS type, m.quantity, m.party_name, m.balance_after
         FROM app_live.inventory_movements m
-        LEFT JOIN app_live.products p ON p.id = m.product_id
+        LEFT JOIN app_live.products p ON p.id=m.product_id AND p.company_id=m.company_id
+        WHERE m.company_id=$1::uuid
         ORDER BY m.movement_date DESC NULLS LAST, m.created_at DESC
-        LIMIT 500`),
+        LIMIT 500`,[scope.companyId]),
     ]);
     return NextResponse.json({
       products: products.rows.map((row) => ({ id: row.id, name: row.name, type: row.type, costPrice: Number(row.cost_price ?? 0), salePrice: Number(row.sale_price ?? 0), stock: Number(row.current_stock ?? 0), active: row.active })),
@@ -32,6 +35,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const pool = getPool();
   if (!pool) return NextResponse.json({ error: "Banco não configurado." }, { status: 503 });
+  const scope=await getTenantScope(); if(!scope)return NextResponse.json({error:"Selecione uma empresa."},{status:403});
   let body: AdjustmentInput;
   try { body = await request.json() as AdjustmentInput; }
   catch { return NextResponse.json({ error: "Dados inválidos." }, { status: 400 }); }
@@ -47,7 +51,7 @@ export async function POST(request: Request) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const product = await client.query(`SELECT name, COALESCE(current_stock, 0) AS stock FROM app_live.products WHERE id=$1::uuid FOR UPDATE`, [body.productId]);
+    const product = await client.query(`SELECT name,COALESCE(current_stock,0) AS stock FROM app_live.products WHERE id=$1::uuid AND company_id=$2::uuid FOR UPDATE`, [body.productId,scope.companyId]);
     if (!product.rowCount) throw new Error("PRODUCT_NOT_FOUND");
     const oldStock = Number(product.rows[0].stock);
     const newStock = body.type === "ENTRADA" ? oldStock + quantity : body.type === "SAIDA" ? oldStock - quantity : quantity;
@@ -55,10 +59,10 @@ export async function POST(request: Request) {
     const movementQuantity = body.type === "AJUSTE" ? newStock - oldStock : quantity;
     await client.query(`UPDATE app_live.products SET current_stock=$2 WHERE id=$1::uuid`, [body.productId, newStock]);
     const movement = await client.query(
-      `INSERT INTO app_live.inventory_movements (product_id, movement_date, movement_type, quantity, party_name, balance_after)
-       VALUES ($1::uuid, COALESCE($2::date, CURRENT_DATE), $3, $4, $5, $6)
+      `INSERT INTO app_live.inventory_movements (company_id,product_id,movement_date,movement_type,quantity,party_name,balance_after)
+       VALUES ($1::uuid,$2::uuid,COALESCE($3::date,CURRENT_DATE),$4,$5,$6,$7)
        RETURNING id::text, movement_date::text`,
-      [body.productId, date, body.type, movementQuantity, partyName, newStock],
+      [scope.companyId,body.productId, date, body.type, movementQuantity, partyName, newStock],
     );
     await client.query(
       `INSERT INTO app_live.audit_log (entity_type, entity_id, action, details)
