@@ -16,6 +16,7 @@ import {
   Wrench,
   Building2,
   Tags,
+  SlidersHorizontal,
 } from "lucide-react";
 import { useAuth } from "@/components/auth-context";
 import type { Permission } from "@/lib/auth-shared";
@@ -34,6 +35,7 @@ const entries: Array<{ id: Permission | "orcamentos"; label: string; icon: typeo
   { id: "mecanicos", label: "Mecânicos", icon: UserRoundCog, href: "/mecanicos" },
   { id: "fornecedores", label: "Fornecedores", icon: Building2, href: "/fornecedores" },
   { id: "categorias_financeiras", label: "Categorias financeiras", icon: Tags, href: "/categorias-financeiras" },
+  { id: "configuracoes_financeiras", label: "Contas e taxas", icon: SlidersHorizontal, href: "/configuracoes-financeiras" },
 ];
 
 export function AppSidebar({ active }: { active: string }) {
