@@ -1,6 +1,6 @@
 # Maurício Motos
 
-Aplicação web para substituir gradualmente o AppSheet da oficina, preservando os dados históricos no PostgreSQL.
+Aplicação web para substituir gradualmente o AppSheet da oficina, preservando os dados históricos no PostgreSQL. Inclui atendimento e orçamentos, compras e estoque com custo médio, contas a pagar e receber, DRG gerencial, cadastros multiempresa e relatórios operacionais.
 
 ## Primeiro módulo
 

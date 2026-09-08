@@ -10,6 +10,7 @@ const rules: Array<[RegExp, Permission]> = [
   [/^\/drg/, "drg"], [/^\/api\/drg/, "drg"],
   [/^\/financeiro/, "financeiro"], [/^\/api\/finance(?:\/|$)/, "financeiro"],
   [/^\/estoque/, "estoque"], [/^\/api\/inventory/, "estoque"],
+  [/^\/relatorios/, "relatorios"], [/^\/api\/reports/, "relatorios"],
   [/^\/clientes/, "clientes"], [/^\/veiculos/, "veiculos"], [/^\/produtos/, "produtos"], [/^\/mecanicos/, "mecanicos"],
   [/^\/fornecedores/, "fornecedores"], [/^\/api\/registries\/suppliers/, "fornecedores"],
   [/^\/categorias-financeiras/, "categorias_financeiras"], [/^\/api\/financial-categories/, "categorias_financeiras"],
