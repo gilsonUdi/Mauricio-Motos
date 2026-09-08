@@ -30,6 +30,7 @@ const entries: Array<{ id: Permission | "orcamentos"; label: string; icon: typeo
   { id: "pagar", label: "Contas a pagar", icon: WalletCards, href: "/pagar" },
   { id: "conferencia", label: "Conferência", icon: BadgeCheck, href: "/conferencia" },
   { id: "financeiro", label: "Financeiro", icon: ChartNoAxesCombined, href: "/financeiro" },
+  { id: "drg", label: "DRG", icon: ChartNoAxesCombined, href: "/drg" },
   { id: "estoque", label: "Estoque", icon: Boxes, href: "/estoque" },
   { id: "clientes", label: "Clientes", icon: Users, href: "/clientes" },
   { id: "veiculos", label: "Veículos", icon: Bike, href: "/veiculos" },

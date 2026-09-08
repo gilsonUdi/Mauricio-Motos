@@ -6,7 +6,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { permissionIds, type Permission } from "@/lib/auth-shared";
 
 type User = { id: string; name: string; email: string; role: string; permissions: Permission[]; active: boolean; last_login_at?: string; created_at: string };
-const labels: Record<Permission, string> = { atendimento: "Atendimento", compras: "Compras", receber: "Contas a receber", pagar: "Contas a pagar", conferencia: "Conferência", financeiro: "Financeiro", estoque: "Estoque", clientes: "Clientes", veiculos: "Veículos", produtos: "Produtos e serviços", mecanicos: "Mecânicos", fornecedores: "Fornecedores", categorias_financeiras: "Categorias financeiras", configuracoes_financeiras: "Contas e taxas", usuarios: "Usuários" };
+const labels: Record<Permission, string> = { atendimento: "Atendimento", compras: "Compras", receber: "Contas a receber", pagar: "Contas a pagar", conferencia: "Conferência", financeiro: "Financeiro", drg: "DRG", estoque: "Estoque", clientes: "Clientes", veiculos: "Veículos", produtos: "Produtos e serviços", mecanicos: "Mecânicos", fornecedores: "Fornecedores", categorias_financeiras: "Categorias financeiras", configuracoes_financeiras: "Contas e taxas", usuarios: "Usuários" };
 const dateTime = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" });
 
 export function UsersPage() {
