@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { getPool } from "@/lib/db";
 import { sessionCookie, permissionIds } from "@/lib/auth-shared";
 import { verifySessionToken } from "@/lib/auth-token";
+import { ensureFinancialSchema } from "@/lib/financial-schema";
 export { permissionIds, sessionCookie, hasPermission } from "@/lib/auth-shared";
 export type { Permission, SessionUser } from "@/lib/auth-shared";
 export { createSessionToken, verifySessionToken } from "@/lib/auth-token";
@@ -38,6 +39,7 @@ export async function ensureAuthSchema() {
           EXECUTE format('CREATE INDEX IF NOT EXISTS %I ON app_live.%I(company_id)', 'idx_' || table_name || '_company', table_name);
         END LOOP;
       END $$;`);
+    await ensureFinancialSchema(pool);
     const email = process.env.AUTH_ADMIN_EMAIL?.trim().toLowerCase();
     const password = process.env.AUTH_ADMIN_PASSWORD;
     if (email && password) await pool.query(

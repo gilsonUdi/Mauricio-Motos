@@ -17,16 +17,23 @@ export async function GET() {
   try {
     const [purchases, products] = await Promise.all([
       pool.query(`
-        SELECT f.id::text, f.transaction_date::text AS date, f.description AS supplier,
-               f.amount AS total, COUNT(m.id)::integer AS item_count,
-               COALESCE(SUM(m.quantity), 0) AS total_quantity, f.created_at
-        FROM app_live.financial_transactions f
-        LEFT JOIN app_live.inventory_movements m
-          ON m.legacy_movement_key LIKE f.legacy_finance_key || ':%'
-        WHERE f.account_type='COMPRA_ESTOQUE' AND f.company_id=$1::uuid
-        GROUP BY f.id
-        ORDER BY f.transaction_date DESC NULLS LAST, f.created_at DESC
-        LIMIT 500`,[scope.companyId]),
+        SELECT * FROM (
+          SELECT p.id::text, p.issue_date::text AS date, p.supplier_name AS supplier,
+                 p.total_amount AS total, COUNT(i.id)::integer AS item_count,
+                 COALESCE(SUM(i.quantity),0) AS total_quantity, p.created_at
+          FROM app_live.purchases p
+          LEFT JOIN app_live.purchase_items i ON i.purchase_id=p.id
+          WHERE p.company_id=$1::uuid AND p.status<>'CANCELADA'
+          GROUP BY p.id
+          UNION ALL
+          SELECT f.id::text, f.transaction_date::text, f.description, f.amount,
+                 COUNT(m.id)::integer, COALESCE(SUM(m.quantity),0), f.created_at
+          FROM app_live.financial_transactions f
+          LEFT JOIN app_live.inventory_movements m ON m.legacy_movement_key LIKE f.legacy_finance_key || ':%'
+          WHERE f.account_type='COMPRA_ESTOQUE' AND f.company_id=$1::uuid
+            AND NOT EXISTS (SELECT 1 FROM app_live.purchases p WHERE p.company_id=f.company_id AND p.legacy_purchase_key=f.legacy_finance_key)
+          GROUP BY f.id
+        ) history ORDER BY date DESC NULLS LAST, created_at DESC LIMIT 500`,[scope.companyId]),
       pool.query(`SELECT id::text,name,type,cost_price,current_stock FROM app_live.products WHERE active AND company_id=$1::uuid AND lower(COALESCE(type,'')) NOT LIKE '%serv%' ORDER BY name`,[scope.companyId]),
     ]);
     return NextResponse.json({
@@ -78,7 +85,16 @@ export async function POST(request: Request) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const prepared: Array<{ productId: string; name: string; quantity: number; unitCost: number; balance: number }> = [];
+    const total = money(items.reduce((sum, [, item]) => sum + item.quantity * item.unitCost, 0));
+    const purchase = await client.query(
+      `INSERT INTO app_live.purchases
+       (company_id,supplier_name,issue_date,competence_date,total_amount,status,legacy_purchase_key)
+       VALUES ($1::uuid,$2,COALESCE($3::date,CURRENT_DATE),COALESCE($3::date,CURRENT_DATE),$4,'CONFIRMADA',$5)
+       RETURNING id::text,issue_date::text`,
+      [scope.companyId,supplier,date,total,purchaseKey],
+    );
+    const purchaseId = purchase.rows[0].id as string;
+    const prepared: Array<{ productId: string; name: string; quantity: number; unitCost: number; balance: number; previousStock: number; previousCost: number; averageCost: number }> = [];
     for (const [productId, item] of items) {
       const product = await client.query(
         `SELECT name, COALESCE(cost_price, 0) AS cost_price, COALESCE(sale_price, 0) AS sale_price,
@@ -99,34 +115,54 @@ export async function POST(request: Request) {
          WHERE id = $1::uuid`,
         [productId, balance, averageCost],
       );
-      prepared.push({ productId, name: product.rows[0].name, quantity: item.quantity, unitCost: item.unitCost, balance });
+      prepared.push({ productId, name: product.rows[0].name, quantity: item.quantity, unitCost: item.unitCost, balance, previousStock: currentStock, previousCost: currentCost, averageCost });
     }
 
-    const total = money(prepared.reduce((sum, item) => sum + item.quantity * item.unitCost, 0));
-    const finance = await client.query(
-      `INSERT INTO app_live.financial_transactions
-       (company_id,legacy_finance_key,transaction_date,description,movement,account_type,account_group,amount)
-       VALUES ($1::uuid,$2,COALESCE($3::date,CURRENT_DATE),$4,'SAIDA','COMPRA_ESTOQUE','ESTOQUE',$5)
-       RETURNING id::text, transaction_date::text`,
-      [scope.companyId,purchaseKey,date,supplier,total],
-    );
     for (let index = 0; index < prepared.length; index += 1) {
       const item = prepared[index];
       await client.query(
+        `INSERT INTO app_live.purchase_items
+         (purchase_id,product_id,quantity,unit_cost,previous_average_cost,average_cost_after,total_amount)
+         VALUES ($1::uuid,$2::uuid,$3,$4,$5,$6,$7)`,
+        [purchaseId,item.productId,item.quantity,item.unitCost,item.previousCost,item.averageCost,money(item.quantity*item.unitCost)],
+      );
+      await client.query(
         `INSERT INTO app_live.inventory_movements
-         (company_id,legacy_movement_key,product_id,movement_date,movement_type,quantity,party_name,balance_after)
-         VALUES ($1::uuid,$2,$3::uuid,COALESCE($4::date,CURRENT_DATE),'COMPRA',$5,$6,$7)`,
-        [scope.companyId,`${purchaseKey}:${index + 1}`, item.productId, date, item.quantity, supplier, item.balance],
+         (company_id,legacy_movement_key,product_id,movement_date,movement_type,quantity,party_name,balance_after,unit_cost,total_cost,movement_reason,affects_sales_metrics,source_type,source_id)
+         VALUES ($1::uuid,$2,$3::uuid,COALESCE($4::date,CURRENT_DATE),'COMPRA',$5,$6,$7,$8,$9,'ENTRADA_COMPRA',false,'PURCHASE',$10::uuid)`,
+        [scope.companyId,`${purchaseKey}:${index + 1}`, item.productId, date, item.quantity, supplier, item.balance,item.unitCost,money(item.quantity*item.unitCost),purchaseId],
+      );
+      await client.query(
+        `INSERT INTO app_live.inventory_cost_history
+         (company_id,product_id,purchase_id,effective_date,previous_stock,incoming_quantity,previous_average_cost,incoming_unit_cost,new_average_cost)
+         VALUES ($1::uuid,$2::uuid,$3::uuid,COALESCE($4::date,CURRENT_DATE),$5,$6,$7,$8,$9)`,
+        [scope.companyId,item.productId,purchaseId,date,item.previousStock,item.quantity,item.previousCost,item.unitCost,item.averageCost],
       );
     }
+    const category = await client.query(
+      `SELECT id FROM app_live.financial_categories WHERE company_id=$1::uuid AND system_code='INVENTORY_PURCHASE' LIMIT 1`,
+      [scope.companyId],
+    );
     await client.query(
-      `INSERT INTO app_live.audit_log (entity_type, entity_id, action, details)
-       VALUES ('purchase', $1::uuid, 'created', $2::jsonb)`,
-      [finance.rows[0].id, JSON.stringify({ supplier, total, items: prepared.map(({ productId, name, quantity, unitCost }) => ({ productId, name, quantity, unitCost })) })],
+      `INSERT INTO app_live.accounts_payable
+       (company_id,purchase_id,category_id,description,issue_date,competence_date,due_date,original_amount,open_amount,status,notes)
+       VALUES ($1::uuid,$2::uuid,$3::uuid,$4,COALESCE($5::date,CURRENT_DATE),COALESCE($5::date,CURRENT_DATE),COALESCE($5::date,CURRENT_DATE),$6,$6,'PENDENTE','Gerado automaticamente pela compra de estoque')`,
+      [scope.companyId,purchaseId,category.rows[0]?.id??null,`Compra de estoque - ${supplier}`,date,total],
+    );
+    await client.query(
+      `INSERT INTO app_live.financial_events
+       (company_id,event_key,event_type,source_type,source_id,category_id,competence_date,description,amount,affects_drg)
+       VALUES ($1::uuid,$2,'DESPESA','PURCHASE',$3::uuid,$4::uuid,COALESCE($5::date,CURRENT_DATE),$6,$7,false)`,
+      [scope.companyId,`${purchaseKey}:obligation`,purchaseId,category.rows[0]?.id??null,date,`Compra de estoque - ${supplier}`,total],
+    );
+    await client.query(
+      `INSERT INTO app_live.audit_log (entity_type, entity_id, action,actor_id,details)
+       VALUES ('purchase', $1::uuid, 'created',$2::uuid,$3::jsonb)`,
+      [purchaseId,scope.user?.id??null,JSON.stringify({ supplier, total, payableGenerated: true, items: prepared.map(({ productId, name, quantity, unitCost, previousCost, averageCost }) => ({ productId, name, quantity, unitCost, previousCost, averageCost })) })],
     );
     await client.query("COMMIT");
     return NextResponse.json({
-      id: finance.rows[0].id, date: finance.rows[0].transaction_date, supplier, total,
+      id: purchaseId, date: purchase.rows[0].issue_date, supplier, total,
       itemCount: prepared.length, totalQuantity: prepared.reduce((sum, item) => sum + item.quantity, 0),
     }, { status: 201 });
   } catch (error) {

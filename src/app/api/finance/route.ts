@@ -33,8 +33,8 @@ export async function GET(request: Request) {
         FROM app_live.financial_transactions WHERE company_id=$3::uuid AND transaction_date BETWEEN $1::date AND $2::date
         GROUP BY movement, COALESCE(account_group,'Não classificado') ORDER BY SUM(amount) DESC`, [from,to,scope.companyId]),
       pool.query(`
-        SELECT COALESCE(SUM(CASE WHEN payment_date IS NULL AND upper(COALESCE(status,'')) NOT LIKE '%CANC%' THEN amount ELSE 0 END),0) AS open_amount,
-               COALESCE(SUM(CASE WHEN payment_date IS NULL AND due_date < CURRENT_DATE AND upper(COALESCE(status,'')) NOT LIKE '%CANC%' THEN amount ELSE 0 END),0) AS overdue_amount,
+        SELECT COALESCE(SUM(CASE WHEN payment_date IS NULL AND upper(COALESCE(status,'')) NOT LIKE '%CANC%' THEN COALESCE(open_amount,amount) ELSE 0 END),0) AS open_amount,
+               COALESCE(SUM(CASE WHEN payment_date IS NULL AND due_date < CURRENT_DATE AND upper(COALESCE(status,'')) NOT LIKE '%CANC%' THEN COALESCE(open_amount,amount) ELSE 0 END),0) AS overdue_amount,
                COUNT(*) FILTER (WHERE payment_date IS NULL AND due_date < CURRENT_DATE AND upper(COALESCE(status,'')) NOT LIKE '%CANC%')::integer AS overdue_count
         FROM app_live.receivables WHERE company_id=$1::uuid`,[scope.companyId]),
     ]);
@@ -70,10 +70,21 @@ export async function POST(request: Request) {
     await client.query("BEGIN");
     const inserted = await client.query(
       `INSERT INTO app_live.financial_transactions
-       (company_id,legacy_finance_key,transaction_date,description,movement,account_type,account_group,amount)
-       VALUES ($1::uuid,$2,$3::date,$4,$5,'LANCAMENTO_MANUAL',$6,$7)
+       (company_id,legacy_finance_key,transaction_date,competence_date,description,movement,account_type,account_group,amount,source_type,affects_drg)
+       VALUES ($1::uuid,$2,$3::date,$3::date,$4,$5,'LANCAMENTO_MANUAL',$6,$7,'MANUAL',true)
        RETURNING id::text`,
       [scope.companyId,`manual:${randomUUID()}`, date, description, movement, category, amount],
+    );
+    const categoryResult = await client.query(
+      `SELECT id FROM app_live.financial_categories
+       WHERE company_id=$1::uuid AND system_code=$2 LIMIT 1`,
+      [scope.companyId,movement === "ENTRADA" ? "OTHER_INCOME" : "GENERAL_EXPENSE"],
+    );
+    await client.query(
+      `INSERT INTO app_live.financial_events
+       (company_id,event_key,event_type,source_type,source_id,category_id,competence_date,description,amount,affects_drg)
+       VALUES ($1::uuid,$2,$3,'MANUAL',$4::uuid,$5::uuid,$6::date,$7,$8,true)`,
+      [scope.companyId,`manual:${inserted.rows[0].id}`,movement === "ENTRADA" ? "RECEITA" : "DESPESA",inserted.rows[0].id,categoryResult.rows[0]?.id??null,date,description,amount],
     );
     await client.query(
       `INSERT INTO app_live.audit_log (entity_type, entity_id, action, details) VALUES ('financial_transaction', $1::uuid, 'created', $2::jsonb)`,

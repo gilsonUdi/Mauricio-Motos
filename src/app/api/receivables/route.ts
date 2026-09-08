@@ -12,7 +12,8 @@ export async function GET() {
       pool.query(`
         SELECT r.id::text, r.work_order_id::text, o.order_number, r.customer_id::text,
                COALESCE(r.customer_name, o.customer_name) AS customer_name,
-               r.due_date::text, r.payment_date::text, r.amount, r.notes,
+               r.due_date::text, r.payment_date::text, COALESCE(r.original_amount,r.amount) AS amount,
+               COALESCE(r.open_amount,CASE WHEN r.payment_date IS NULL THEN r.amount ELSE 0 END) AS open_amount, r.notes,
                o.payment_method,
                CASE WHEN upper(COALESCE(r.status, '')) LIKE '%CANC%' THEN 'CANCELADO'
                     WHEN r.payment_date IS NOT NULL OR upper(COALESCE(r.status, '')) IN ('PAGO','RECEBIDO','QUITADO') THEN 'PAGO'
@@ -30,7 +31,7 @@ export async function GET() {
       receivables: receivables.rows.map((row) => ({
         id: row.id, workOrderId: row.work_order_id, orderNumber: row.order_number,
         customerId: row.customer_id, customerName: row.customer_name, dueDate: row.due_date,
-        paymentDate: row.payment_date, amount: Number(row.amount), status: row.display_status,
+        paymentDate: row.payment_date, amount: Number(row.amount), openAmount: Number(row.open_amount), status: row.display_status,
         paymentMethod: row.payment_method, notes: row.notes,
       })),
       customers: customers.rows,
@@ -75,8 +76,9 @@ export async function POST(request: Request) {
     if (amount <= 0) throw new Error("AMOUNT_REQUIRED");
 
     const inserted = await client.query(
-      `INSERT INTO app_live.receivables (company_id,work_order_id,customer_id,customer_name,due_date,amount,status,notes)
-       VALUES ($1::uuid,$2::uuid,$3::uuid,$4,$5::date,$6,'PENDENTE',$7)
+      `INSERT INTO app_live.receivables
+       (company_id,work_order_id,customer_id,customer_name,issue_date,competence_date,due_date,amount,original_amount,open_amount,status,notes)
+       VALUES ($1::uuid,$2::uuid,$3::uuid,$4,CURRENT_DATE,CURRENT_DATE,$5::date,$6,$6,$6,'PENDENTE',$7)
        RETURNING id::text`,
       [scope.companyId,workOrderId, customerId, customerName, dueDate, amount, typeof body.notes === "string" ? body.notes.trim() || null : null],
     );
