@@ -462,3 +462,28 @@ h3 { font-size: 20px; }
 .drg-groups details > div { padding: 0 11px 7px 33px; }
 .drg-groups p { display: flex; justify-content: space-between; gap: 16px; margin: 0; padding: 6px 0; color: var(--muted); font-size: 12px; }
 @media (max-width: 720px) { .drg-toolbar { align-items: stretch; flex-direction: column; } .drg-toolbar > p { margin: 0; } .drg-statement { padding: 14px; } .drg-line { padding-inline: 7px; } .drg-groups { margin-left: 8px; } }
+
+.inventory-stats strong small { color: var(--muted); font: 700 11px var(--font-oswald); }
+.inventory-analysis-grid { display: grid; grid-template-columns: minmax(270px,.75fr) minmax(420px,1.25fr); gap: 14px; margin-bottom: 14px; }
+.inventory-analysis-grid article { padding: 18px; }
+.inventory-analysis-grid article > header { display: flex; align-items: end; justify-content: space-between; gap: 12px; margin-bottom: 15px; }
+.inventory-analysis-grid article > header h2 { margin-top: 4px; font-size: 19px; }
+.inventory-analysis-grid article > header > span { color: var(--muted); font-size: 11px; }
+.stock-health-card > div { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; }
+.stock-health { min-width: 0; display: grid; grid-template-columns: 25px 1fr; align-items: center; padding: 11px; border-radius: 11px; color: var(--muted); background: #f1eee7; font-size: 10px; }
+.stock-health svg { grid-row: span 2; width: 18px; }
+.stock-health strong { color: var(--ink); font: 700 21px var(--font-oswald); }
+.stock-health.rupture { color: #a73b35; background: #fae9e7; }
+.stock-health.imminent { color: #936116; background: #fff2d8; }
+.top-products > div { display: grid; gap: 8px; }
+.top-product-row { display: grid; grid-template-columns: minmax(130px,1fr) minmax(120px,2fr) 58px; align-items: center; gap: 10px; font-size: 12px; }
+.top-product-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.top-product-row i { height: 8px; overflow: hidden; border-radius: 99px; background: #e8e3d9; }
+.top-product-row em { display: block; height: 100%; border-radius: inherit; background: var(--green); }
+.top-product-row b { text-align: right; }
+.stock-health-badge { display: inline-flex; padding: 5px 8px; border-radius: 99px; color: #1e684f; background: #dff1e9; font-size: 10px; font-weight: 800; white-space: nowrap; }
+.stock-health-badge.ruptura { color: #963c37; background: #f7e5e3; }
+.stock-health-badge.eminente { color: #80530e; background: var(--amber-soft); }
+.stock-health-badge.sem_giro { color: #666b6a; background: #e7e5df; }
+@media (max-width: 900px) { .inventory-analysis-grid { grid-template-columns: 1fr; } }
+@media (max-width: 560px) { .stock-health-card > div { grid-template-columns: 1fr; } .top-product-row { grid-template-columns: minmax(100px,1fr) minmax(70px,1fr) 45px; } }

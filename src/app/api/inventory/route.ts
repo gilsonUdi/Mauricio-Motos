@@ -6,13 +6,30 @@ import { getTenantScope } from "@/lib/auth";
 type AdjustmentInput = { productId?: string; type?: "ENTRADA" | "SAIDA" | "AJUSTE"; quantity?: number; date?: string; partyName?: string };
 const validTypes = new Set(["ENTRADA", "SAIDA", "AJUSTE"]);
 
-export async function GET() {
+export async function GET(request: Request) {
   const pool = getPool();
   if (!pool) return NextResponse.json({ error: "Banco não configurado." }, { status: 503 });
   const scope=await getTenantScope(); if(!scope)return NextResponse.json({error:"Selecione uma empresa."},{status:403});
+  const requestedDays = Number(new URL(request.url).searchParams.get("days"));
+  const days = Number.isInteger(requestedDays) && requestedDays >= 7 && requestedDays <= 365 ? requestedDays : 90;
   try {
     const [products, movements] = await Promise.all([
-      pool.query(`SELECT id::text,name,type,cost_price,sale_price,current_stock,active FROM app_live.products WHERE company_id=$1::uuid AND lower(COALESCE(type,'')) NOT LIKE '%serv%' ORDER BY active DESC,name`,[scope.companyId]),
+      pool.query(`WITH sales AS (
+          SELECT i.product_id,SUM(i.quantity) AS sold_quantity,COUNT(DISTINCT o.id)::integer AS order_count
+          FROM app_live.work_order_items i JOIN app_live.work_orders o ON o.id=i.work_order_id
+          WHERE o.company_id=$1::uuid AND o.status='VENDA_REALIZADA' AND o.sale_date>=CURRENT_DATE-($2::integer-1)
+            AND i.product_id IS NOT NULL GROUP BY i.product_id
+        ), movements AS (
+          SELECT product_id,SUM(CASE WHEN movement_type IN ('VENDA','SAIDA') THEN -ABS(quantity)
+            WHEN movement_type IN ('COMPRA','ENTRADA','ESTORNO_VENDA') THEN ABS(quantity)
+            WHEN movement_type='AJUSTE' THEN quantity ELSE 0 END) AS net_movement
+          FROM app_live.inventory_movements WHERE company_id=$1::uuid AND movement_date>=CURRENT_DATE-($2::integer-1)
+            AND reversed_at IS NULL GROUP BY product_id
+        )
+        SELECT p.id::text,p.name,p.type,p.cost_price,p.sale_price,p.current_stock,p.minimum_stock,p.lead_time_days,p.active,
+          COALESCE(s.sold_quantity,0) AS sold_quantity,COALESCE(s.order_count,0) AS order_count,COALESCE(m.net_movement,0) AS net_movement
+        FROM app_live.products p LEFT JOIN sales s ON s.product_id=p.id LEFT JOIN movements m ON m.product_id=p.id
+        WHERE p.company_id=$1::uuid AND p.item_kind<>'SERVICO' ORDER BY p.active DESC,p.name`,[scope.companyId,days]),
       pool.query(`
         SELECT m.id::text, m.product_id::text, p.name AS product_name, m.movement_date::text AS date,
                m.movement_type AS type, m.quantity, m.party_name, m.balance_after
@@ -22,8 +39,19 @@ export async function GET() {
         ORDER BY m.movement_date DESC NULLS LAST, m.created_at DESC
         LIMIT 500`,[scope.companyId]),
     ]);
+    const mappedProducts = products.rows.map((row) => {
+      const stock=Number(row.current_stock??0);const soldQuantity=Number(row.sold_quantity??0);const dailySales=soldQuantity/days;
+      const openingStock=stock-Number(row.net_movement??0);const averageStock=Math.max(0,(Math.max(0,openingStock)+Math.max(0,stock))/2);
+      const turnover=averageStock>0?soldQuantity/averageStock:null;const coverageDays=dailySales>0?Math.max(0,stock)/dailySales:null;
+      const minimumStock=Number(row.minimum_stock??0);const leadTimeDays=Number(row.lead_time_days??0);
+      const health=stock<=0?"RUPTURA":stock<=minimumStock||(coverageDays!==null&&leadTimeDays>0&&coverageDays<=leadTimeDays)?"EMINENTE":soldQuantity<=0?"SEM_GIRO":"SAUDAVEL";
+      return { id:row.id,name:row.name,type:row.type,costPrice:Number(row.cost_price??0),salePrice:Number(row.sale_price??0),stock,minimumStock,leadTimeDays,active:row.active,soldQuantity,orderCount:Number(row.order_count??0),turnover,coverageDays,health };
+    });
+    const active=mappedProducts.filter(product=>product.active);const inventoryCostValue=active.reduce((sum,product)=>sum+Math.max(0,product.stock)*product.costPrice,0);const inventorySaleValue=active.reduce((sum,product)=>sum+Math.max(0,product.stock)*product.salePrice,0);
     return NextResponse.json({
-      products: products.rows.map((row) => ({ id: row.id, name: row.name, type: row.type, costPrice: Number(row.cost_price ?? 0), salePrice: Number(row.sale_price ?? 0), stock: Number(row.current_stock ?? 0), active: row.active })),
+      periodDays:days,
+      summary:{inventoryCostValue,inventorySaleValue,projectedMarginAmount:inventorySaleValue-inventoryCostValue,projectedMarginPercent:inventorySaleValue>0?(inventorySaleValue-inventoryCostValue)/inventorySaleValue*100:0,ruptures:active.filter(product=>product.health==="RUPTURA").length,imminent:active.filter(product=>product.health==="EMINENTE").length,noMovement:active.filter(product=>product.health==="SEM_GIRO").length},
+      products: mappedProducts,
       movements: movements.rows.map((row) => ({ id: row.id, productId: row.product_id, productName: row.product_name, date: row.date, type: row.type, quantity: Number(row.quantity), partyName: row.party_name, balance: row.balance_after === null ? null : Number(row.balance_after) })),
     });
   } catch (error) {
