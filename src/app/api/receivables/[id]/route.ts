@@ -21,7 +21,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const receivable = await client.query(
       `SELECT r.customer_name,COALESCE(r.original_amount,r.amount) AS original_amount,
               COALESCE(r.open_amount,CASE WHEN r.payment_date IS NULL THEN r.amount ELSE 0 END) AS open_amount,
-              r.payment_date,r.status,r.installment_count,o.payment_method
+              r.payment_date,r.status,r.installment_count,o.payment_method,
+              r.payment_method_id::text,r.financial_account_id::text,r.fee_percent
        FROM app_live.receivables r LEFT JOIN app_live.work_orders o ON o.id=r.work_order_id
        WHERE r.id=$1::uuid AND r.company_id=$2::uuid FOR UPDATE OF r`, [id,scope.companyId],
     );
@@ -31,15 +32,15 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       if (row.status === "CANCELADO") throw new Error("CANCELLED");
       const receivedAmount = Number(row.open_amount);
       if (receivedAmount <= 0) throw new Error("ALREADY_PAID");
-      const methodId=body.paymentMethodId&&uuidPattern.test(body.paymentMethodId)?body.paymentMethodId:null;
-      const accountId=body.financialAccountId&&uuidPattern.test(body.financialAccountId)?body.financialAccountId:null;
+      const methodId=body.paymentMethodId&&uuidPattern.test(body.paymentMethodId)?body.paymentMethodId:row.payment_method_id;
+      const accountId=body.financialAccountId&&uuidPattern.test(body.financialAccountId)?body.financialAccountId:row.financial_account_id;
       if(!methodId)throw new Error("METHOD_REQUIRED");
       const methodResult=await client.query(`SELECT id::text,name,variable_fee,default_fee_percent,default_account_id::text FROM app_live.payment_methods WHERE id=$1::uuid AND company_id=$2::uuid AND active`,[methodId,scope.companyId]);
       if(!methodResult.rowCount)throw new Error("METHOD_REQUIRED");
       const methodRow=methodResult.rows[0];const selectedAccountId=accountId??methodRow.default_account_id;
       if(!selectedAccountId||!(await client.query(`SELECT 1 FROM app_live.financial_accounts WHERE id=$1::uuid AND company_id=$2::uuid AND active`,[selectedAccountId,scope.companyId])).rowCount)throw new Error("ACCOUNT_REQUIRED");
-      let feePercent=Number(methodRow.default_fee_percent??0);
-      if(methodRow.variable_fee){const feeRule=await client.query(`SELECT fee_percent FROM app_live.payment_fee_rules WHERE payment_method_id=$1::uuid AND minimum_installments<=$2 AND (maximum_installments IS NULL OR maximum_installments>=$2) ORDER BY minimum_installments DESC LIMIT 1`,[methodId,Number(row.installment_count??1)]);feePercent=Number(feeRule.rows[0]?.fee_percent??feePercent);}
+      let feePercent=methodId===row.payment_method_id?Number(row.fee_percent??0):Number(methodRow.default_fee_percent??0);
+      if(methodId!==row.payment_method_id&&methodRow.variable_fee){const feeRule=await client.query(`SELECT fee_percent FROM app_live.payment_fee_rules WHERE payment_method_id=$1::uuid AND minimum_installments<=$2 AND (maximum_installments IS NULL OR maximum_installments>=$2) ORDER BY minimum_installments DESC LIMIT 1`,[methodId,Number(row.installment_count??1)]);feePercent=Number(feeRule.rows[0]?.fee_percent??feePercent);}
       const method = methodRow.name;const feeAmount=Math.round(receivedAmount*feePercent)/100;const netAmount=Math.round((receivedAmount-feeAmount)*100)/100;
       const payment=await client.query(
         `INSERT INTO app_live.receivable_payments

@@ -15,7 +15,8 @@ import {
 import { useMemo, useState } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { OrderFormModal } from "@/components/order-form-modal";
-import type { DashboardData, OrderStatus, WorkOrder } from "@/lib/types";
+import { SaleFinanceModal } from "@/components/sale-finance-modal";
+import type { DashboardData, OrderStatus, SaleFinancialConfig, WorkOrder } from "@/lib/types";
 
 const statusLabels: Record<OrderStatus, string> = {
   ORCAMENTO: "Orçamento",
@@ -48,6 +49,7 @@ export function OrdersDashboard({ initialData }: { initialData: DashboardData })
   const [notice, setNotice] = useState("");
   const [creatingOrder, setCreatingOrder] = useState(false);
   const [editingOrder, setEditingOrder] = useState<WorkOrder | null>(null);
+  const [closingSale, setClosingSale] = useState<WorkOrder | null>(null);
   const selected = orders.find((order) => order.id === selectedId) ?? orders[0];
 
   const filtered = useMemo(() => orders.filter((order) => {
@@ -62,10 +64,11 @@ export function OrdersDashboard({ initialData }: { initialData: DashboardData })
     revenue: orders.filter((order) => order.status === "VENDA_REALIZADA").reduce((sum, order) => sum + order.total, 0),
   }), [orders]);
 
-  async function changeStatus(status: OrderStatus) {
+  async function changeStatus(status: OrderStatus, financial?: SaleFinancialConfig) {
     if (!selected) return;
     if (!initialData.connected) {
       setOrders((current) => current.map((order) => order.id === selected.id ? { ...order, status } : order));
+      if (status === "VENDA_REALIZADA") setClosingSale(null);
       setNotice(`Demonstração: ${statusLabels[status].toLowerCase()} aplicado localmente.`);
       return;
     }
@@ -73,14 +76,17 @@ export function OrdersDashboard({ initialData }: { initialData: DashboardData })
     const response = await fetch(`/api/orders/${selected.id}/status`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ status, ...financial }),
     });
     if (!response.ok) {
       const payload = await response.json().catch(() => null);
-      setNotice(payload?.error ?? "Não foi possível atualizar a ordem.");
+      const message = payload?.error ?? "Não foi possível atualizar a ordem.";
+      if (financial) throw new Error(message);
+      setNotice(message);
       return;
     }
     setOrders((current) => current.map((order) => order.id === selected.id ? { ...order, status } : order));
+    if (status === "VENDA_REALIZADA") setClosingSale(null);
     setNotice(`Ordem ${selected.number} atualizada para ${statusLabels[status].toLowerCase()}.`);
   }
 
@@ -180,7 +186,7 @@ export function OrdersDashboard({ initialData }: { initialData: DashboardData })
                 <div className="actions-bar">
                   {selected.status === "ORCAMENTO" && <button className="action-button" onClick={() => setEditingOrder(selected)}><Pencil size={18} /> Editar orçamento</button>}
                   {selected.status !== "PEDIDO" && selected.status !== "VENDA_REALIZADA" && <button className="action-button amber" onClick={() => changeStatus("PEDIDO")}><ClipboardList size={18} /> Gerar pedido</button>}
-                  {selected.status !== "VENDA_REALIZADA" && <button className="action-button green" onClick={() => changeStatus("VENDA_REALIZADA")}><CheckCircle2 size={18} /> Concluir venda</button>}
+                  {selected.status !== "VENDA_REALIZADA" && <button className="action-button green" onClick={() => setClosingSale(selected)}><CheckCircle2 size={18} /> Concluir venda</button>}
                   {selected.status !== "ORCAMENTO" && <button className="action-button" onClick={() => changeStatus("ORCAMENTO")}><FileText size={18} /> Retornar a orçamento</button>}
                   {selected.status !== "CANCELADO" && <button className="action-button danger" onClick={() => changeStatus("CANCELADO")}><XCircle size={18} /> Cancelar</button>}
                 </div>
@@ -192,6 +198,7 @@ export function OrdersDashboard({ initialData }: { initialData: DashboardData })
       {notice && <button className="toast" onClick={() => setNotice("")}>{notice}</button>}
       {creatingOrder && <OrderFormModal onClose={() => setCreatingOrder(false)} onSaved={orderSaved} />}
       {editingOrder && <OrderFormModal initialOrder={editingOrder} onClose={() => setEditingOrder(null)} onSaved={orderSaved} />}
+      {closingSale && <SaleFinanceModal order={closingSale} onClose={() => setClosingSale(null)} onConfirm={config => changeStatus("VENDA_REALIZADA", config)} />}
     </div>
   );
 }

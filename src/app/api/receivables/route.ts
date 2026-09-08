@@ -14,13 +14,15 @@ export async function GET() {
                COALESCE(r.customer_name, o.customer_name) AS customer_name,
                r.due_date::text, r.payment_date::text, COALESCE(r.original_amount,r.amount) AS amount,
                COALESCE(r.open_amount,CASE WHEN r.payment_date IS NULL THEN r.amount ELSE 0 END) AS open_amount, r.notes,
-               COALESCE(last_payment.payment_method,o.payment_method) AS payment_method,r.installment_number,r.installment_count,
+               COALESCE(last_payment.payment_method,pm.name,o.payment_method) AS payment_method,r.installment_number,r.installment_count,
+               r.payment_method_id::text,r.financial_account_id::text,r.fee_percent,
                CASE WHEN upper(COALESCE(r.status, '')) LIKE '%CANC%' THEN 'CANCELADO'
                     WHEN r.payment_date IS NOT NULL OR upper(COALESCE(r.status, '')) IN ('PAGO','RECEBIDO','QUITADO') THEN 'PAGO'
                     WHEN r.due_date < CURRENT_DATE THEN 'VENCIDO'
                     ELSE 'PENDENTE' END AS display_status
         FROM app_live.receivables r
         LEFT JOIN app_live.work_orders o ON o.id=r.work_order_id AND o.company_id=r.company_id
+        LEFT JOIN app_live.payment_methods pm ON pm.id=r.payment_method_id
         LEFT JOIN LATERAL (SELECT rp.payment_method FROM app_live.receivable_payments rp WHERE rp.receivable_id=r.id AND rp.reversed_at IS NULL ORDER BY rp.created_at DESC LIMIT 1) last_payment ON true
         WHERE r.company_id=$1::uuid
         ORDER BY COALESCE(r.payment_date, r.due_date) DESC NULLS LAST, r.created_at DESC
@@ -36,7 +38,8 @@ export async function GET() {
         id: row.id, workOrderId: row.work_order_id, orderNumber: row.order_number,
         customerId: row.customer_id, customerName: row.customer_name, dueDate: row.due_date,
         paymentDate: row.payment_date, amount: Number(row.amount), openAmount: Number(row.open_amount), status: row.display_status,
-        paymentMethod: row.payment_method, installmentNumber:Number(row.installment_number??1),installmentCount:Number(row.installment_count??1), notes: row.notes,
+        paymentMethod: row.payment_method, paymentMethodId:row.payment_method_id, financialAccountId:row.financial_account_id,
+        feePercent:Number(row.fee_percent??0), installmentNumber:Number(row.installment_number??1),installmentCount:Number(row.installment_count??1), notes: row.notes,
       })),
       customers: customers.rows,
       orders: orders.rows.map((row) => ({ id: row.id, number: row.order_number, customerId: row.customer_id, customerName: row.customer_name, total: Number(row.total_value) })),

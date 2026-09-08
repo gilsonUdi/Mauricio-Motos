@@ -36,6 +36,14 @@ export type DashboardData = {
   orders: WorkOrder[];
 };
 
+export type SaleFinancialConfig = {
+  entryAmount: number;
+  installmentCount: number;
+  firstDueDate: string;
+  paymentMethodId: string;
+  financialAccountId: string;
+};
+
 export type CustomerLookup = {
   id: string;
   name: string;
