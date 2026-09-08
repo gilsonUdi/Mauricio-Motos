@@ -6,6 +6,7 @@ const rules: Array<[RegExp, Permission]> = [
   [/^\/$/, "atendimento"], [/^\/api\/orders/, "atendimento"],
   [/^\/compras/, "compras"], [/^\/api\/purchases/, "compras"],
   [/^\/receber/, "receber"], [/^\/conferencia/, "conferencia"],
+  [/^\/pagar/, "pagar"], [/^\/api\/payables/, "pagar"],
   [/^\/financeiro/, "financeiro"], [/^\/api\/finance(?:\/|$)/, "financeiro"],
   [/^\/estoque/, "estoque"], [/^\/api\/inventory/, "estoque"],
   [/^\/clientes/, "clientes"], [/^\/veiculos/, "veiculos"], [/^\/produtos/, "produtos"], [/^\/mecanicos/, "mecanicos"],

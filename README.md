@@ -28,3 +28,5 @@ A migração `db/migrations/004_financial_foundation.sql` separa os eventos econ
 A migração `db/migrations/005_catalogs.sql` amplia produtos com dados fiscais e de reposição, cria o cadastro completo de fornecedores e instala um plano inicial de grupos e categorias financeiras para cada empresa. Novas empresas recebem esse plano automaticamente.
 
 A migração `db/migrations/006_operational_finance.sql` cria contas financeiras, formas de pagamento e faixas de taxas por parcelamento. As baixas de contas a receber passam a registrar conta, forma, valor bruto, taxa e valor líquido sem duplicar a receita econômica da venda.
+
+A conclusão de uma venda solicita entrada, parcelamento, vencimento, forma e conta, gerando as parcelas automaticamente com a taxa congelada. O módulo `/pagar` reúne obrigações de compras e lançamentos manuais, separa emissão, competência e vencimento e registra a baixa na conta financeira sem duplicar a despesa no DRG.

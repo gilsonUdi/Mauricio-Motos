@@ -223,6 +223,7 @@ h3 { font-size: 20px; }
 .period-toolbar .secondary-button { min-height: 42px; }
 .financial-status { display: inline-flex; padding: 5px 9px; border-radius: 99px; font-size: 11px; font-weight: 800; }
 .financial-status.pendente { color: #80530e; background: var(--amber-soft); }
+.financial-status.parcial { color: #315b91; background: #e2edf9; }
 .financial-status.vencido { color: #963c37; background: #f7e5e3; }
 .financial-status.pago { color: #19664c; background: #dff1e9; }
 .financial-status.cancelado { color: #6e706e; background: #e6e3dd; }

@@ -17,6 +17,7 @@ import {
   Building2,
   Tags,
   SlidersHorizontal,
+  WalletCards,
 } from "lucide-react";
 import { useAuth } from "@/components/auth-context";
 import type { Permission } from "@/lib/auth-shared";
@@ -26,6 +27,7 @@ const entries: Array<{ id: Permission | "orcamentos"; label: string; icon: typeo
   { id: "orcamentos", label: "Orçamentos", icon: ClipboardList },
   { id: "compras", label: "Compras", icon: PackageSearch, href: "/compras" },
   { id: "receber", label: "Contas a receber", icon: CircleDollarSign, href: "/receber" },
+  { id: "pagar", label: "Contas a pagar", icon: WalletCards, href: "/pagar" },
   { id: "conferencia", label: "Conferência", icon: BadgeCheck, href: "/conferencia" },
   { id: "financeiro", label: "Financeiro", icon: ChartNoAxesCombined, href: "/financeiro" },
   { id: "estoque", label: "Estoque", icon: Boxes, href: "/estoque" },
