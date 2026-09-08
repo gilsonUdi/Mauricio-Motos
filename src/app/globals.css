@@ -299,6 +299,10 @@ h3 { font-size: 20px; }
 .company-meta span { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
 .company-meta .missing-access { color: #a75b1d; font-weight: 800; }
 .company-login-button { width: 100%; justify-content: center; margin-top: auto; }
+.company-card-actions { width: 100%; display: grid; gap: 8px; margin-top: auto; }
+.company-card-actions button { width: 100%; justify-content: center; }
+.impersonation-banner { position: sticky; top: 0; z-index: 100; min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 18px; color: #251c0d; background: var(--amber); box-shadow: 0 4px 16px #0003; font-size: 13px; }
+.impersonation-banner button { padding: 7px 11px; border: 1px solid #765015; border-radius: 8px; color: inherit; background: transparent; font-weight: 800; }
 .tenant-callout { display: flex; align-items: center; gap: 12px; margin: 0 0 17px; padding: 14px; border-radius: 12px; color: #614619; background: var(--amber-soft); }
 .form-help { margin: 12px 0 0; color: var(--muted); font-size: 12px; }
 .platform-error { margin-top: 15px; color: var(--red); }
@@ -393,6 +397,7 @@ h3 { font-size: 20px; }
   .platform-actions { width: 100%; }
   .platform-actions button { flex: 1; justify-content: center; }
   .company-grid, .platform-summary { grid-template-columns: 1fr; }
+  .impersonation-banner { align-items: flex-start; flex-direction: column; gap: 7px; }
   .operations-stats > div { min-height: 78px; padding: 12px; }
   .operations-stats > div strong { font-size: 20px; }
   .purchase-header-grid { grid-template-columns: 1fr; }
