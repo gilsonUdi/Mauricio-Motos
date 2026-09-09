@@ -34,6 +34,8 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
         SELECT
           o.id::text,
           o.order_number AS number,
+          o.source_work_order_id::text,
+          o.revision_number,
           o.customer_id::text,
           o.customer_name AS customer,
           c.phone,
@@ -79,6 +81,8 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
         order = {
           id: row.id,
           number: row.number,
+          sourceOrderId: row.source_work_order_id ?? undefined,
+          revisionNumber: Number(row.revision_number ?? 1),
           customerId: row.customer_id ?? undefined,
           customer: row.customer,
           phone: row.phone ?? undefined,

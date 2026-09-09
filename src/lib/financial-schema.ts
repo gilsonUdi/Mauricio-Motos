@@ -186,6 +186,9 @@ CREATE TABLE IF NOT EXISTS app_live.inventory_cost_history (
 ALTER TABLE app_live.work_orders ADD COLUMN IF NOT EXISTS approved_at timestamptz;
 ALTER TABLE app_live.work_orders ADD COLUMN IF NOT EXISTS valid_until date;
 UPDATE app_live.work_orders SET valid_until=COALESCE(budget_date,CURRENT_DATE)+7 WHERE valid_until IS NULL AND status='ORCAMENTO';
+ALTER TABLE app_live.work_orders ADD COLUMN IF NOT EXISTS source_work_order_id uuid REFERENCES app_live.work_orders(id) ON DELETE SET NULL;
+ALTER TABLE app_live.work_orders ADD COLUMN IF NOT EXISTS revision_number integer NOT NULL DEFAULT 1;
+CREATE INDEX IF NOT EXISTS idx_work_orders_source ON app_live.work_orders(company_id,source_work_order_id);
 ALTER TABLE app_live.work_orders ADD COLUMN IF NOT EXISTS approved_by_customer text;
 ALTER TABLE app_live.work_orders ADD COLUMN IF NOT EXISTS approval_method text;
 ALTER TABLE app_live.work_orders ADD COLUMN IF NOT EXISTS approval_notes text;

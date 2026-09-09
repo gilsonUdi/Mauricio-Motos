@@ -13,6 +13,8 @@ export type OrderItem = {
 export type WorkOrder = {
   id: string;
   number: string;
+  sourceOrderId?: string;
+  revisionNumber?: number;
   customerId?: string;
   customer: string;
   phone?: string;

@@ -104,7 +104,7 @@ export async function createOrderPdf({ order, companyName = "Maurício Motos", g
     page.drawText(safeText(companyName), { x: margin + 48, y: y - 11, font: bold, size: 17, color: colors.ink });
     page.drawText("OFICINA E SERVIÇOS", { x: margin + 48, y: y - 29, font: bold, size: 7.5, color: colors.accent });
     drawRight(page, "ORÇAMENTO", A4.width - margin, y - 9, bold, 16);
-    drawRight(page, `Nº ${order.number}`, A4.width - margin, y - 28, regular, 9, colors.muted);
+    drawRight(page, `Nº ${order.number}${(order.revisionNumber ?? 1) > 1 ? ` · Revisão ${order.revisionNumber}` : ""}`, A4.width - margin, y - 28, regular, 9, colors.muted);
     y -= 58;
     page.drawLine({ start: { x: margin, y }, end: { x: A4.width - margin, y }, thickness: 1.2, color: colors.accent });
     y -= 20;

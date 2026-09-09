@@ -5,6 +5,8 @@ import type { DashboardData, OrderStatus, WorkOrder } from "./types";
 type OrderRow = {
   id: string;
   number: string;
+  source_work_order_id: string | null;
+  revision_number: number | null;
   customer_id: string | null;
   customer: string;
   phone: string | null;
@@ -37,6 +39,8 @@ export async function getDashboardData(companyId: string): Promise<DashboardData
       SELECT
         o.id::text,
         o.order_number AS number,
+        o.source_work_order_id::text,
+        o.revision_number,
         o.customer_id::text,
         o.customer_name AS customer,
         c.phone,
@@ -83,6 +87,8 @@ export async function getDashboardData(companyId: string): Promise<DashboardData
     const orders: WorkOrder[] = result.rows.map((row) => ({
       id: row.id,
       number: row.number,
+      sourceOrderId: row.source_work_order_id ?? undefined,
+      revisionNumber: Number(row.revision_number ?? 1),
       customerId: row.customer_id ?? undefined,
       customer: row.customer,
       phone: row.phone ?? undefined,

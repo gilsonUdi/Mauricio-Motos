@@ -5,11 +5,13 @@ import {
   CheckCircle2,
   ChevronRight,
   ClipboardList,
+  Copy,
   Download,
   FileText,
   Gauge,
   CalendarClock,
   Menu,
+  LoaderCircle,
   Pencil,
   Search,
   XCircle,
@@ -64,6 +66,7 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
   const [editingOrder, setEditingOrder] = useState<WorkOrder | null>(null);
   const [closingSale, setClosingSale] = useState<WorkOrder | null>(null);
   const [approvingOrder, setApprovingOrder] = useState<WorkOrder | null>(null);
+  const [duplicatingId, setDuplicatingId] = useState("");
 
   const filtered = useMemo(() => orders.filter((order) => {
     const haystack = `${order.number} ${order.customer} ${order.plate ?? ""} ${order.model ?? ""}`.toLowerCase();
@@ -131,6 +134,28 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
     setNotice(`Orçamento ${order.number} ${wasEditing ? "atualizado" : "criado"} para ${order.customer}.`);
   }
 
+  async function duplicateOrder() {
+    if (!selected) return;
+    setDuplicatingId(selected.id);
+    try {
+      if (!initialData.connected) {
+        const revision = (selected.revisionNumber ?? 1) + 1;
+        orderSaved({ ...selected, id: crypto.randomUUID(), number: `${selected.number}-R${revision}`, sourceOrderId: selected.id,
+          revisionNumber: revision, status: "ORCAMENTO", budgetDate: currentDateKey(), validUntil: new Date(Date.now()+7*86400000).toLocaleDateString("en-CA"), approvedAt: undefined,
+          approvedByCustomer: undefined, approvalMethod: undefined, approvalNotes: undefined });
+        return;
+      }
+      const response = await fetch(`/api/orders/${selected.id}/duplicate`, { method: "POST" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "Não foi possível criar a nova versão.");
+      orderSaved(payload as WorkOrder);
+    } catch (caught) {
+      setNotice(caught instanceof Error ? caught.message : "Não foi possível criar a nova versão.");
+    } finally {
+      setDuplicatingId("");
+    }
+  }
+
   return (
     <div className="app-shell">
       <AppSidebar active={mode} />
@@ -180,7 +205,7 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
             <div className="order-list">
               {filtered.map((order) => (
                 <button className={`order-card ${selected?.id === order.id ? "selected" : ""}`} key={order.id} onClick={() => setSelectedId(order.id)}>
-                  <div className="order-card-top"><span>#{order.number}</span>{isExpired(order) ? <span className="status-badge budget-expired">Vencido</span> : <StatusBadge status={order.status} />}</div>
+                  <div className="order-card-top"><span>#{order.number}{(order.revisionNumber ?? 1) > 1 ? ` · R${order.revisionNumber}` : ""}</span>{isExpired(order) ? <span className="status-badge budget-expired">Vencido</span> : <StatusBadge status={order.status} />}</div>
                   <strong>{order.customer}</strong>
                   <p>{order.plate ?? "Sem placa"} · {order.model ?? "Modelo não informado"}</p>
                   <div className="order-card-bottom"><span>{budgetMode && order.validUntil ? `Validade: ${formatDate(order.validUntil)}` : formatDate(order.budgetDate)}</span><b>{currency.format(order.total)}</b><ChevronRight size={18} /></div>
@@ -194,7 +219,7 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
             {selected ? (
               <>
                 <div className="detail-header">
-                  <div><span className="section-kicker">ORDEM #{selected.number}</span><h2>{selected.customer}</h2><p>{selected.phone ?? "Telefone não informado"}</p></div>
+                  <div><span className="section-kicker">ORDEM #{selected.number}{(selected.revisionNumber ?? 1) > 1 ? ` · REVISÃO ${selected.revisionNumber}` : ""}</span><h2>{selected.customer}</h2><p>{selected.phone ?? "Telefone não informado"}</p></div>
                   <StatusBadge status={selected.status} />
                 </div>
                 <div className="vehicle-strip">
@@ -225,6 +250,7 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
 
                 <div className="actions-bar">
                   <a className="action-button" href={`/api/orders/${selected.id}/pdf`} download><Download size={18} /> Baixar PDF</a>
+                  <button className="action-button" onClick={() => void duplicateOrder()} disabled={Boolean(duplicatingId)}>{duplicatingId === selected.id ? <LoaderCircle className="spin" size={18} /> : <Copy size={18} />}{duplicatingId === selected.id ? "Criando..." : "Criar nova versão"}</button>
                   {selected.status === "ORCAMENTO" && <button className="action-button" onClick={() => setEditingOrder(selected)}><Pencil size={18} /> Editar orçamento</button>}
                   {selected.status === "ORCAMENTO" && <button className="action-button amber" onClick={() => setApprovingOrder(selected)}><ClipboardList size={18} /> Registrar aprovação</button>}
                   {selected.status !== "VENDA_REALIZADA" && <button className="action-button green" onClick={() => setClosingSale(selected)}><CheckCircle2 size={18} /> Concluir venda</button>}
