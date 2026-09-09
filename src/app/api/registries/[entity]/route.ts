@@ -5,9 +5,11 @@ import {
   cleanText,
   isRegistryEntity,
   mapRegistryRecord,
+  normalizeDocument,
   numberValue,
   registryListSql,
   uuidPattern,
+  isValidBrazilianDocument,
 } from "@/lib/registries";
 import { getTenantScope } from "@/lib/auth";
 
@@ -60,6 +62,10 @@ export async function POST(request: Request, context: Context) {
   if (entity === "vehicles" && !plate) return NextResponse.json({ error: "Informe a placa." }, { status: 400 });
   const customerId = cleanText(body.customerId);
   if (customerId && !uuidPattern.test(customerId)) return NextResponse.json({ error: "Cliente inválido." }, { status: 400 });
+  const document = normalizeDocument(body.document);
+  if ((entity === "customers" || entity === "suppliers") && document && !isValidBrazilianDocument(document)) {
+    return NextResponse.json({ error: document.length <= 11 ? "CPF inválido." : "CNPJ inválido." }, { status: 400 });
+  }
 
   const client = await pool.connect();
   try {
@@ -67,9 +73,9 @@ export async function POST(request: Request, context: Context) {
     let inserted;
     if (entity === "customers") {
       inserted = await client.query(
-        `INSERT INTO app_live.customers (company_id,name, document, phone, default_plate, default_model)
-         VALUES ($1::uuid,$2,$3,$4,$5,$6) RETURNING *`,
-        [scope.companyId,name, cleanText(body.document), cleanText(body.phone), cleanText(body.defaultPlate)?.toUpperCase() ?? null, cleanText(body.defaultModel)],
+        `INSERT INTO app_live.customers (company_id,name,document,phone,email,zip_code,street,address_number,complement,district,city,state,default_plate,default_model)
+         VALUES ($1::uuid,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
+        [scope.companyId,name,document,cleanText(body.phone),cleanText(body.email)?.toLowerCase(),cleanText(body.zipCode)?.replace(/\D/g,""),cleanText(body.street),cleanText(body.addressNumber),cleanText(body.complement),cleanText(body.district),cleanText(body.city),cleanText(body.state)?.toUpperCase(),cleanText(body.defaultPlate)?.toUpperCase()??null,cleanText(body.defaultModel)],
       );
     } else if (entity === "vehicles") {
       inserted = await client.query(
@@ -100,7 +106,7 @@ export async function POST(request: Request, context: Context) {
         `INSERT INTO app_live.suppliers
          (company_id,name,legal_name,document,state_registration,phone,email,zip_code,street,address_number,complement,district,city,state,payment_terms_days,notes,active)
          VALUES($1::uuid,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
-        [scope.companyId,name,cleanText(body.legalName),cleanText(body.document)?.replace(/\D/g,""),cleanText(body.stateRegistration),cleanText(body.phone),cleanText(body.email)?.toLowerCase(),cleanText(body.zipCode)?.replace(/\D/g,""),cleanText(body.street),cleanText(body.addressNumber),cleanText(body.complement),cleanText(body.district),cleanText(body.city),cleanText(body.state)?.toUpperCase(),Math.max(0,Math.trunc(numberValue(body.paymentTermsDays))),cleanText(body.notes),booleanValue(body.active)],
+        [scope.companyId,name,cleanText(body.legalName),document,cleanText(body.stateRegistration),cleanText(body.phone),cleanText(body.email)?.toLowerCase(),cleanText(body.zipCode)?.replace(/\D/g,""),cleanText(body.street),cleanText(body.addressNumber),cleanText(body.complement),cleanText(body.district),cleanText(body.city),cleanText(body.state)?.toUpperCase(),Math.max(0,Math.trunc(numberValue(body.paymentTermsDays))),cleanText(body.notes),booleanValue(body.active)],
       );
     } else {
       inserted = await client.query(

@@ -34,3 +34,5 @@ A conclusão de uma venda solicita entrada, parcelamento, vencimento, forma e co
 O demonstrativo `/drg` consolida receita bruta, descontos, impostos, receita líquida, CMV, lucro bruto, despesas por grupo e resultado líquido. Ele considera a data de competência e respeita as opções “Incluir no DRG” dos grupos e categorias financeiras.
 
 O estoque calcula giro apenas a partir de vendas concluídas, cobertura em dias, ruptura e risco de ruptura usando estoque mínimo e prazo de reposição. O painel também mostra o valor atual a custo, o valor potencial de venda e a margem projetada do inventário.
+
+Os cadastros de clientes e fornecedores validam CPF/CNPJ no backend. A consulta de CEP usa o ViaCEP e a consulta cadastral de CNPJ usa a BrasilAPI, sempre pelo backend para manter o formulário independente dos provedores externos.

@@ -12,7 +12,7 @@ type SupplierOption = { id: string; name: string };
 type FieldDefinition = {
   key: string;
   label: string;
-  type?: "text" | "number" | "checkbox" | "customer" | "supplier" | "select";
+  type?: "text" | "number" | "checkbox" | "customer" | "supplier" | "select" | "document" | "zip";
   required?: boolean;
   step?: string;
   placeholder?: string;
@@ -37,13 +37,21 @@ const configs: Record<RegistryEntity, {
     fields: [
       { key: "name", label: "Nome", required: true },
       { key: "phone", label: "Telefone" },
-      { key: "document", label: "CPF/CNPJ" },
+      { key: "email", label: "E-mail" },
+      { key: "document", label: "CPF/CNPJ", type:"document" },
+      { key: "zipCode", label: "CEP", type:"zip" },
+      { key: "street", label: "Logradouro" },
+      { key: "addressNumber", label: "Número" },
+      { key: "complement", label: "Complemento" },
+      { key: "district", label: "Bairro" },
+      { key: "city", label: "Cidade" },
+      { key: "state", label: "UF" },
       { key: "defaultPlate", label: "Placa padrão" },
       { key: "defaultModel", label: "Modelo padrão" },
     ],
     columns: [
       { key: "name", label: "Cliente" }, { key: "phone", label: "Telefone" },
-      { key: "document", label: "CPF/CNPJ" }, { key: "defaultPlate", label: "Placa padrão" },
+      { key: "document", label: "CPF/CNPJ" }, { key: "city", label: "Cidade" },
     ],
   },
   vehicles: {
@@ -114,11 +122,11 @@ const configs: Record<RegistryEntity, {
     fields: [
       { key: "name", label: "Nome fantasia", required: true },
       { key: "legalName", label: "Razão social" },
-      { key: "document", label: "CNPJ/CPF" },
+      { key: "document", label: "CNPJ/CPF", type:"document" },
       { key: "stateRegistration", label: "Inscrição estadual" },
       { key: "phone", label: "Telefone" },
       { key: "email", label: "E-mail" },
-      { key: "zipCode", label: "CEP" },
+      { key: "zipCode", label: "CEP", type:"zip" },
       { key: "street", label: "Logradouro" },
       { key: "addressNumber", label: "Número" },
       { key: "complement", label: "Complemento" },
@@ -169,6 +177,7 @@ export function RegistryPage({ entity }: { entity: RegistryEntity }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [mobileMenu, setMobileMenu] = useState(false);
+  const [lookupLoading,setLookupLoading]=useState<"cep"|"cnpj">();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -223,6 +232,14 @@ export function RegistryPage({ entity }: { entity: RegistryEntity }) {
     }
   }
 
+  async function lookup(type:"cep"|"cnpj") {
+    const key=type==="cep"?"zipCode":"document";const value=String(form[key]??"").replace(/\D/g,"");
+    setLookupLoading(type);setError("");
+    try { const response=await fetch(`/api/registry-lookup?type=${type}&value=${encodeURIComponent(value)}`);const payload=await response.json();if(!response.ok)throw new Error(payload.error??"Não foi possível consultar os dados.");setForm(current=>({...current,...payload}));setNotice(type==="cep"?"Endereço preenchido pelo CEP.":"Dados do CNPJ preenchidos. Revise antes de salvar."); }
+    catch(caught){setError(caught instanceof Error?caught.message:"Não foi possível consultar os dados.");}
+    finally{setLookupLoading(undefined);}
+  }
+
   return (
     <div className="app-shell">
       <AppSidebar active={entity} />
@@ -274,6 +291,8 @@ export function RegistryPage({ entity }: { entity: RegistryEntity }) {
                 <label className="field span-2" key={field.key}><span>{field.label}</span><select value={String(form[field.key] ?? "")} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))}><option value="">Sem fornecedor vinculado</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></label>
               ) : field.type === "select" ? (
                 <label className="field" key={field.key}><span>{field.label}{field.required ? " *" : ""}</span><select required={field.required} value={String(form[field.key] ?? field.options?.[0]?.value ?? "")} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))}>{field.options?.map((option)=><option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
+              ) : field.type === "document" || field.type === "zip" ? (
+                <label className="field lookup-field" key={field.key}><span>{field.label}{field.required ? " *" : ""}</span><div><input inputMode="numeric" required={field.required} value={String(form[field.key] ?? "")} placeholder={field.type==="zip"?"00000-000":"Somente números"} onChange={(event)=>setForm(current=>({...current,[field.key]:event.target.value}))}/><button type="button" onClick={()=>void lookup(field.type==="zip"?"cep":"cnpj")} disabled={lookupLoading!==undefined||(field.type==="zip"?String(form[field.key]??"").replace(/\D/g,"").length!==8:String(form[field.key]??"").replace(/\D/g,"").length!==14)}>{lookupLoading===(field.type==="zip"?"cep":"cnpj")?<LoaderCircle className="spin" size={15}/>:<Search size={15}/>} {field.type==="zip"?"Buscar CEP":"Buscar CNPJ"}</button></div></label>
               ) : (
                 <label className={`field ${field.key === "name" ? "span-2" : ""}`} key={field.key}><span>{field.label}{field.required ? " *" : ""}</span><input type={field.type ?? "text"} min={field.type === "number" ? "0" : undefined} step={field.step} required={field.required} value={String(form[field.key] ?? "")} placeholder={field.placeholder} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))} /></label>
               ))}

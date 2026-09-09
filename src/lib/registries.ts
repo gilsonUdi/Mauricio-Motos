@@ -8,7 +8,8 @@ export function isRegistryEntity(value: string): value is RegistryEntity {
 
 export const registryListSql: Record<RegistryEntity, string> = {
   customers: `
-    SELECT id::text, name, document, phone, default_plate, default_model, updated_at
+    SELECT id::text,name,document,phone,email,zip_code,street,address_number,complement,district,city,state,
+           default_plate,default_model,updated_at
     FROM app_live.customers WHERE company_id=$1::uuid ORDER BY name`,
   vehicles: `
     SELECT v.id::text, v.customer_id::text, c.name AS customer_name, v.plate,
@@ -36,6 +37,8 @@ export const registryListSql: Record<RegistryEntity, string> = {
 export function mapRegistryRecord(entity: RegistryEntity, row: Record<string, unknown>) {
   if (entity === "customers") return {
     id: String(row.id), name: row.name, document: row.document, phone: row.phone,
+    email: row.email, zipCode: row.zip_code, street: row.street, addressNumber: row.address_number,
+    complement: row.complement, district: row.district, city: row.city, state: row.state,
     defaultPlate: row.default_plate, defaultModel: row.default_model, updatedAt: row.updated_at,
   };
   if (entity === "vehicles") return {
@@ -72,3 +75,37 @@ export const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-
 export const cleanText = (value: unknown) => typeof value === "string" ? value.trim() || null : null;
 export const numberValue = (value: unknown, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 export const booleanValue = (value: unknown, fallback = true) => typeof value === "boolean" ? value : fallback;
+
+export function normalizeDocument(value: unknown) {
+  return cleanText(value)?.replace(/\D/g, "") ?? null;
+}
+
+function hasRepeatedDigits(value: string) {
+  return /^(\d)\1+$/.test(value);
+}
+
+export function isValidCpf(value: string) {
+  if (!/^\d{11}$/.test(value) || hasRepeatedDigits(value)) return false;
+  const digit = (length: number) => {
+    let sum = 0;
+    for (let index = 0; index < length; index += 1) sum += Number(value[index]) * (length + 1 - index);
+    const result = (sum * 10) % 11;
+    return result === 10 ? 0 : result;
+  };
+  return digit(9) === Number(value[9]) && digit(10) === Number(value[10]);
+}
+
+export function isValidCnpj(value: string) {
+  if (!/^\d{14}$/.test(value) || hasRepeatedDigits(value)) return false;
+  const calculate = (length: number) => {
+    const weights = length === 12 ? [5,4,3,2,9,8,7,6,5,4,3,2] : [6,5,4,3,2,9,8,7,6,5,4,3,2];
+    const sum = weights.reduce((total, weight, index) => total + Number(value[index]) * weight, 0);
+    const remainder = sum % 11;
+    return remainder < 2 ? 0 : 11 - remainder;
+  };
+  return calculate(12) === Number(value[12]) && calculate(13) === Number(value[13]);
+}
+
+export function isValidBrazilianDocument(value: string) {
+  return value.length === 11 ? isValidCpf(value) : value.length === 14 ? isValidCnpj(value) : false;
+}

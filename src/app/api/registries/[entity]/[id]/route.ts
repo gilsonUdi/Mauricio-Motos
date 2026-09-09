@@ -5,8 +5,10 @@ import {
   cleanText,
   isRegistryEntity,
   mapRegistryRecord,
+  normalizeDocument,
   numberValue,
   uuidPattern,
+  isValidBrazilianDocument,
 } from "@/lib/registries";
 import { getTenantScope } from "@/lib/auth";
 
@@ -31,6 +33,10 @@ export async function PATCH(request: Request, context: Context) {
   if (entity === "vehicles" && !plate) return NextResponse.json({ error: "Informe a placa." }, { status: 400 });
   const customerId = cleanText(body.customerId);
   if (customerId && !uuidPattern.test(customerId)) return NextResponse.json({ error: "Cliente inválido." }, { status: 400 });
+  const document = normalizeDocument(body.document);
+  if ((entity === "customers" || entity === "suppliers") && document && !isValidBrazilianDocument(document)) {
+    return NextResponse.json({ error: document.length <= 11 ? "CPF inválido." : "CNPJ inválido." }, { status: 400 });
+  }
 
   const client = await pool.connect();
   try {
@@ -38,9 +44,10 @@ export async function PATCH(request: Request, context: Context) {
     let updated;
     if (entity === "customers") {
       updated = await client.query(
-        `UPDATE app_live.customers SET name=$2, document=$3, phone=$4, default_plate=$5, default_model=$6
-         WHERE id=$1::uuid AND company_id=$7::uuid RETURNING *`,
-        [id, name, cleanText(body.document), cleanText(body.phone), cleanText(body.defaultPlate)?.toUpperCase() ?? null, cleanText(body.defaultModel),scope.companyId],
+        `UPDATE app_live.customers SET name=$2,document=$3,phone=$4,email=$5,zip_code=$6,street=$7,address_number=$8,
+         complement=$9,district=$10,city=$11,state=$12,default_plate=$13,default_model=$14
+         WHERE id=$1::uuid AND company_id=$15::uuid RETURNING *`,
+        [id,name,document,cleanText(body.phone),cleanText(body.email)?.toLowerCase(),cleanText(body.zipCode)?.replace(/\D/g,""),cleanText(body.street),cleanText(body.addressNumber),cleanText(body.complement),cleanText(body.district),cleanText(body.city),cleanText(body.state)?.toUpperCase(),cleanText(body.defaultPlate)?.toUpperCase()??null,cleanText(body.defaultModel),scope.companyId],
       );
     } else if (entity === "vehicles") {
       updated = await client.query(
@@ -72,7 +79,7 @@ export async function PATCH(request: Request, context: Context) {
         `UPDATE app_live.suppliers SET name=$2,legal_name=$3,document=$4,state_registration=$5,phone=$6,email=$7,zip_code=$8,street=$9,
          address_number=$10,complement=$11,district=$12,city=$13,state=$14,payment_terms_days=$15,notes=$16,active=$17
          WHERE id=$1::uuid AND company_id=$18::uuid RETURNING *`,
-        [id,name,cleanText(body.legalName),cleanText(body.document)?.replace(/\D/g,""),cleanText(body.stateRegistration),cleanText(body.phone),cleanText(body.email)?.toLowerCase(),cleanText(body.zipCode)?.replace(/\D/g,""),cleanText(body.street),cleanText(body.addressNumber),cleanText(body.complement),cleanText(body.district),cleanText(body.city),cleanText(body.state)?.toUpperCase(),Math.max(0,Math.trunc(numberValue(body.paymentTermsDays))),cleanText(body.notes),booleanValue(body.active),scope.companyId],
+        [id,name,cleanText(body.legalName),document,cleanText(body.stateRegistration),cleanText(body.phone),cleanText(body.email)?.toLowerCase(),cleanText(body.zipCode)?.replace(/\D/g,""),cleanText(body.street),cleanText(body.addressNumber),cleanText(body.complement),cleanText(body.district),cleanText(body.city),cleanText(body.state)?.toUpperCase(),Math.max(0,Math.trunc(numberValue(body.paymentTermsDays))),cleanText(body.notes),booleanValue(body.active),scope.companyId],
       );
     } else {
       updated = await client.query(
