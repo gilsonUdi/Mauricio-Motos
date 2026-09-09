@@ -27,6 +27,10 @@ export type WorkOrder = {
   discount?: number;
   status: OrderStatus;
   paymentMethod?: string;
+  approvedAt?: string;
+  approvedByCustomer?: string;
+  approvalMethod?: string;
+  approvalNotes?: string;
   notes?: string;
   items: OrderItem[];
 };
@@ -42,6 +46,12 @@ export type SaleFinancialConfig = {
   firstDueDate: string;
   paymentMethodId: string;
   financialAccountId: string;
+};
+
+export type BudgetApprovalConfig = {
+  approvedByCustomer: string;
+  approvalMethod: string;
+  approvalNotes?: string;
 };
 
 export type CustomerLookup = {

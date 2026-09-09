@@ -43,6 +43,9 @@ export async function PATCH(
     firstDueDate?: string;
     paymentMethodId?: string;
     financialAccountId?: string;
+    approvedByCustomer?: string;
+    approvalMethod?: string;
+    approvalNotes?: string;
   };
   if (!body.status || !validStatuses.has(body.status)) {
     return NextResponse.json({ error: "Status inválido." }, { status: 400 });
@@ -52,7 +55,8 @@ export async function PATCH(
   try {
     await client.query("BEGIN");
     const current = await client.query(
-      `SELECT status,customer_id,customer_name,total_value,COALESCE(sale_date,CURRENT_DATE)::text AS sale_date
+      `SELECT status,customer_id,customer_name,total_value,COALESCE(sale_date,CURRENT_DATE)::text AS sale_date,
+              approved_by_customer,approval_method,approval_notes
        FROM app_live.work_orders WHERE id=$1::uuid AND company_id=$2::uuid FOR UPDATE`,
       [id, scope.companyId],
     );
@@ -65,6 +69,11 @@ export async function PATCH(
     }
 
     const previousStatus = current.rows[0].status as OrderStatus;
+    const enteringApproval = previousStatus === "ORCAMENTO" && (body.status === "PEDIDO" || body.status === "VENDA_REALIZADA");
+    const approvedByCustomer = typeof body.approvedByCustomer === "string" ? body.approvedByCustomer.trim().slice(0, 160) : "";
+    const allowedApprovalMethods = new Set(["WhatsApp", "Telefone", "Presencial", "E-mail", "Outro", "Conclusão direta"]);
+    const approvalMethod = typeof body.approvalMethod === "string" && allowedApprovalMethods.has(body.approvalMethod) ? body.approvalMethod : "";
+    const approvalNotes = typeof body.approvalNotes === "string" ? body.approvalNotes.trim().slice(0, 1000) : "";
     const enteringSale =
       previousStatus !== "VENDA_REALIZADA" && body.status === "VENDA_REALIZADA";
     const leavingSale =
@@ -330,13 +339,17 @@ export async function PATCH(
            generate_order = ($2 IN ('PEDIDO', 'VENDA_REALIZADA')),
            sale_date = CASE WHEN $2 = 'VENDA_REALIZADA' THEN CURRENT_DATE ELSE NULL END,
            approved_at = CASE WHEN $2 IN ('PEDIDO','VENDA_REALIZADA') THEN COALESCE(approved_at,now()) ELSE NULL END,
+           approved_by_customer = CASE WHEN $2 IN ('PEDIDO','VENDA_REALIZADA') THEN COALESCE(NULLIF($4,''),approved_by_customer,customer_name) ELSE NULL END,
+           approval_method = CASE WHEN $2 IN ('PEDIDO','VENDA_REALIZADA') THEN COALESCE(NULLIF($5,''),approval_method,'Conclusão direta') ELSE NULL END,
+           approval_notes = CASE WHEN $2 IN ('PEDIDO','VENDA_REALIZADA') THEN COALESCE(NULLIF($6,''),approval_notes) ELSE NULL END,
            completed_at = CASE WHEN $2 = 'VENDA_REALIZADA' THEN now() ELSE NULL END,
            financial_generated_at = CASE WHEN $2 = 'VENDA_REALIZADA' THEN now() ELSE NULL END,
            cancelled_at = CASE WHEN $2 = 'CANCELADO' THEN now() ELSE NULL END,
            updated_at = now()
        WHERE id=$1::uuid AND company_id=$3::uuid
-       RETURNING id::text, status`,
-      [id, body.status, scope.companyId],
+       RETURNING id::text,status,approved_at AS "approvedAt",approved_by_customer AS "approvedByCustomer",
+                 approval_method AS "approvalMethod",approval_notes AS "approvalNotes"`,
+      [id,body.status,scope.companyId,enteringApproval ? approvedByCustomer : "",enteringApproval ? approvalMethod : "",enteringApproval ? approvalNotes : ""],
     );
     if (enteringSale)
       await client.query(
@@ -363,8 +376,10 @@ export async function PATCH(
 
     await client.query(
       `INSERT INTO app_live.audit_log (entity_type,entity_id,action,actor_id,details)
-       VALUES ('work_order',$1::uuid,'status_changed',$2::uuid,jsonb_build_object('status',$3::text,'company_id',$4::text))`,
-      [id, scope.user?.id ?? null, body.status, scope.companyId],
+       VALUES ('work_order',$1::uuid,'status_changed',$2::uuid,jsonb_build_object(
+         'status',$3::text,'company_id',$4::text,'approved_by',$5::text,'approval_method',$6::text,'approval_notes',$7::text
+       ))`,
+      [id,scope.user?.id ?? null,body.status,scope.companyId,enteringApproval ? approvedByCustomer : null,enteringApproval ? approvalMethod : null,enteringApproval ? approvalNotes : null],
     );
     await client.query("COMMIT");
     return NextResponse.json(updated.rows[0]);

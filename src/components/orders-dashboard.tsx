@@ -15,9 +15,10 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
+import { BudgetApprovalModal } from "@/components/budget-approval-modal";
 import { OrderFormModal } from "@/components/order-form-modal";
 import { SaleFinanceModal } from "@/components/sale-finance-modal";
-import type { DashboardData, OrderStatus, SaleFinancialConfig, WorkOrder } from "@/lib/types";
+import type { BudgetApprovalConfig, DashboardData, OrderStatus, SaleFinancialConfig, WorkOrder } from "@/lib/types";
 
 const statusLabels: Record<OrderStatus, string> = {
   ORCAMENTO: "Orçamento",
@@ -31,6 +32,11 @@ const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "
 function formatDate(value?: string) {
   if (!value) return "—";
   return new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(`${value}T00:00:00Z`));
+}
+
+function formatDateTime(value?: string) {
+  if (!value) return "—";
+  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(value));
 }
 
 function StatCard({ label, value, tone }: { label: string; value: string; tone?: string }) {
@@ -52,6 +58,7 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
   const [creatingOrder, setCreatingOrder] = useState(false);
   const [editingOrder, setEditingOrder] = useState<WorkOrder | null>(null);
   const [closingSale, setClosingSale] = useState<WorkOrder | null>(null);
+  const [approvingOrder, setApprovingOrder] = useState<WorkOrder | null>(null);
 
   const filtered = useMemo(() => orders.filter((order) => {
     const haystack = `${order.number} ${order.customer} ${order.plate ?? ""} ${order.model ?? ""}`.toLowerCase();
@@ -71,11 +78,12 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
     cancelled: orders.filter((order) => order.status === "CANCELADO").length,
   }), [orders]);
 
-  async function changeStatus(status: OrderStatus, financial?: SaleFinancialConfig) {
+  async function changeStatus(status: OrderStatus, financial?: SaleFinancialConfig, approval?: BudgetApprovalConfig) {
     if (!selected) return;
     if (!initialData.connected) {
-      setOrders((current) => current.map((order) => order.id === selected.id ? { ...order, status } : order));
+      setOrders((current) => current.map((order) => order.id === selected.id ? { ...order, status, ...(approval ? { ...approval, approvedAt: new Date().toISOString() } : {}) } : order));
       if (status === "VENDA_REALIZADA") setClosingSale(null);
+      if (status === "PEDIDO") setApprovingOrder(null);
       setNotice(`Demonstração: ${statusLabels[status].toLowerCase()} aplicado localmente.`);
       return;
     }
@@ -83,17 +91,18 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
     const response = await fetch(`/api/orders/${selected.id}/status`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status, ...financial }),
+      body: JSON.stringify({ status, ...financial, ...approval }),
     });
+    const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      const payload = await response.json().catch(() => null);
       const message = payload?.error ?? "Não foi possível atualizar a ordem.";
-      if (financial) throw new Error(message);
+      if (financial || approval) throw new Error(message);
       setNotice(message);
       return;
     }
-    setOrders((current) => current.map((order) => order.id === selected.id ? { ...order, status } : order));
+    setOrders((current) => current.map((order) => order.id === selected.id ? { ...order, status, approvedAt: payload.approvedAt, approvedByCustomer: payload.approvedByCustomer, approvalMethod: payload.approvalMethod, approvalNotes: payload.approvalNotes } : order));
     if (status === "VENDA_REALIZADA") setClosingSale(null);
+    if (status === "PEDIDO") setApprovingOrder(null);
     setNotice(`Ordem ${selected.number} atualizada para ${statusLabels[status].toLowerCase()}.`);
   }
 
@@ -197,10 +206,12 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
 
                 <div className="service-notes"><Gauge size={18} /><div><span>Observações</span><p>{selected.notes ?? "Nenhuma observação registrada."}</p></div></div>
 
+                {selected.approvedAt && <div className="service-notes approval-record"><CheckCircle2 size={18} /><div><span>Aprovação do cliente</span><p><strong>{selected.approvedByCustomer ?? selected.customer}</strong> · {selected.approvalMethod ?? "Canal não informado"} · {formatDateTime(selected.approvedAt)}{selected.approvalNotes ? <><br />{selected.approvalNotes}</> : null}</p></div></div>}
+
                 <div className="actions-bar">
                   <a className="action-button" href={`/api/orders/${selected.id}/pdf`} download><Download size={18} /> Baixar PDF</a>
                   {selected.status === "ORCAMENTO" && <button className="action-button" onClick={() => setEditingOrder(selected)}><Pencil size={18} /> Editar orçamento</button>}
-                  {selected.status !== "PEDIDO" && selected.status !== "VENDA_REALIZADA" && <button className="action-button amber" onClick={() => changeStatus("PEDIDO")}><ClipboardList size={18} /> Gerar pedido</button>}
+                  {selected.status === "ORCAMENTO" && <button className="action-button amber" onClick={() => setApprovingOrder(selected)}><ClipboardList size={18} /> Registrar aprovação</button>}
                   {selected.status !== "VENDA_REALIZADA" && <button className="action-button green" onClick={() => setClosingSale(selected)}><CheckCircle2 size={18} /> Concluir venda</button>}
                   {selected.status !== "ORCAMENTO" && <button className="action-button" onClick={() => changeStatus("ORCAMENTO")}><FileText size={18} /> Retornar a orçamento</button>}
                   {selected.status !== "CANCELADO" && <button className="action-button danger" onClick={() => changeStatus("CANCELADO")}><XCircle size={18} /> Cancelar</button>}
@@ -213,6 +224,7 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
       {notice && <button className="toast" onClick={() => setNotice("")}>{notice}</button>}
       {creatingOrder && <OrderFormModal onClose={() => setCreatingOrder(false)} onSaved={orderSaved} />}
       {editingOrder && <OrderFormModal initialOrder={editingOrder} onClose={() => setEditingOrder(null)} onSaved={orderSaved} />}
+      {approvingOrder && <BudgetApprovalModal order={approvingOrder} onClose={() => setApprovingOrder(null)} onConfirm={(approval) => changeStatus("PEDIDO", undefined, approval)} />}
       {closingSale && <SaleFinanceModal order={closingSale} onClose={() => setClosingSale(null)} onConfirm={config => changeStatus("VENDA_REALIZADA", config)} />}
     </div>
   );

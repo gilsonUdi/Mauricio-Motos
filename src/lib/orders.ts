@@ -19,6 +19,10 @@ type OrderRow = {
   discount: string | number;
   status: OrderStatus;
   payment_method: string | null;
+  approved_at: string | null;
+  approved_by_customer: string | null;
+  approval_method: string | null;
+  approval_notes: string | null;
   notes: string | null;
   items: Array<{ id: string; productId?: string; name: string; type: string; quantity: number; unitPrice: number; total: number }> | null;
 };
@@ -46,6 +50,10 @@ export async function getDashboardData(companyId: string): Promise<DashboardData
         o.discount_value AS discount,
         o.status,
         o.payment_method,
+        o.approved_at,
+        o.approved_by_customer,
+        o.approval_method,
+        o.approval_notes,
         o.notes,
         COALESCE(
           jsonb_agg(
@@ -87,6 +95,10 @@ export async function getDashboardData(companyId: string): Promise<DashboardData
       discount: Number(row.discount ?? 0),
       status: row.status,
       paymentMethod: row.payment_method ?? undefined,
+      approvedAt: row.approved_at ?? undefined,
+      approvedByCustomer: row.approved_by_customer ?? undefined,
+      approvalMethod: row.approval_method ?? undefined,
+      approvalNotes: row.approval_notes ?? undefined,
       notes: row.notes ?? undefined,
       items: row.items ?? [],
     }));

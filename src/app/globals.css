@@ -103,6 +103,8 @@ h3 { font-size: 20px; }
 .service-notes { display: flex; gap: 11px; margin: 16px 24px; padding: 14px 16px; border-left: 3px solid var(--amber); background: #fbf4e7; }
 .service-notes span { font-size: 10px; color: #8a5a0f; font-weight: 800; text-transform: uppercase; }
 .service-notes p { margin: 4px 0 0; font-size: 13px; }
+.service-notes.approval-record { border-left-color: var(--green); background: #edf8f1; }
+.service-notes.approval-record span { color: #217044; }
 .actions-bar { display: flex; flex-wrap: wrap; gap: 9px; padding: 2px 24px 24px; }
 .action-button { background: #ece9e2; color: var(--ink); }
 .action-button.amber { background: var(--amber); }

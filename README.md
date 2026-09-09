@@ -10,6 +10,7 @@ Aplicação web para substituir gradualmente o AppSheet da oficina, preservando 
 - transições entre orçamento, pedido, venda realizada e cancelamento;
 - geração de orçamento em PDF para impressão ou envio ao cliente;
 - área própria para acompanhar orçamentos, aprová-los e convertê-los em pedidos;
+- registro de quem aprovou, canal, data e observações da aprovação;
 - registro de alterações no banco.
 
 Sem `DATABASE_URL`, a aplicação abre em modo de demonstração. Em produção, use o host interno do PostgreSQL no Easypanel.
