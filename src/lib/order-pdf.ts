@@ -132,7 +132,7 @@ export async function createOrderPdf({ order, companyName = "Maurício Motos", g
   page.drawRectangle({ x: margin, y: infoTop - 78, width: A4.width - margin * 2, height: 78, color: colors.soft, borderColor: colors.line, borderWidth: 0.7 });
   drawLabelValue("Cliente", order.customer, margin + 12, 226, infoTop - 16);
   drawLabelValue("Telefone", order.phone || "Não informado", margin + 257, 110, infoTop - 16);
-  drawLabelValue("Data", formatDate(order.budgetDate), margin + 385, 103, infoTop - 16);
+  drawLabelValue("Emissão / validade", `${formatDate(order.budgetDate)} / ${formatDate(order.validUntil)}`, margin + 385, 103, infoTop - 16);
   drawLabelValue("Veículo", order.model || "Não informado", margin + 12, 175, infoTop - 50);
   drawLabelValue("Placa", order.plate || "Não informada", margin + 205, 75, infoTop - 50);
   drawLabelValue("Quilometragem", order.mileage ? `${number.format(order.mileage)} km` : "Não informada", margin + 300, 85, infoTop - 50);

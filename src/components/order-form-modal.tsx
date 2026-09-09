@@ -24,6 +24,11 @@ const today = () => {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 };
+const addDays = (value: string, days: number) => {
+  const date = new Date(`${value}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+};
 const normalize = (value: string) => value.trim().toLocaleLowerCase("pt-BR");
 
 function blankItem(key: number): DraftItem {
@@ -45,6 +50,7 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
   const [mileage, setMileage] = useState(initialOrder?.mileage ? String(initialOrder.mileage) : "");
   const [mechanicId, setMechanicId] = useState(initialOrder?.mechanicId ?? "");
   const [budgetDate, setBudgetDate] = useState(initialOrder?.budgetDate ?? today);
+  const [validUntil, setValidUntil] = useState(initialOrder?.validUntil ?? addDays(initialOrder?.budgetDate ?? today(), 7));
   const [discount, setDiscount] = useState(String(initialOrder?.discount ?? 0));
   const [notes, setNotes] = useState(initialOrder?.notes ?? "");
   const [items, setItems] = useState<DraftItem[]>(initialOrder?.items.length ? initialOrder.items.map((item, index) => ({
@@ -159,6 +165,7 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
           mileage: Number(mileage) || undefined,
           mechanicId: mechanicId || undefined,
           budgetDate,
+          validUntil,
           discount: Number(discount.replace(",", ".")) || 0,
           notes,
           items: items.map((item) => ({
@@ -194,10 +201,11 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
               <legend><UserRound size={18} /> Cliente</legend>
               <div className="form-grid three-columns">
                 <label className="field span-2"><span>Cliente *</span><input list="customer-options" value={customerName} onChange={(event) => chooseCustomer(event.target.value)} placeholder="Busque ou digite um novo cliente" required /></label>
-                <label className="field"><span>Data do orçamento</span><input type="date" value={budgetDate} onChange={(event) => setBudgetDate(event.target.value)} /></label>
+                <label className="field"><span>Data do orçamento</span><input type="date" value={budgetDate} onChange={(event) => { const next=event.target.value; setBudgetDate(next); if(next)setValidUntil(addDays(next,7)); }} /></label>
                 <label className="field"><span>Telefone</span><input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="(00) 00000-0000" disabled={Boolean(customerId)} /></label>
                 <label className="field"><span>CPF/CNPJ</span><input value={document} onChange={(event) => setDocument(event.target.value)} placeholder="Documento" disabled={Boolean(customerId)} /></label>
                 <label className="field"><span>Mecânico</span><select value={mechanicId} onChange={(event) => setMechanicId(event.target.value)}><option value="">Não definido</option>{lookups?.mechanics.map((mechanic) => <option key={mechanic.id} value={mechanic.id}>{mechanic.name}</option>)}</select></label>
+                <label className="field"><span>Validade do orçamento</span><input type="date" min={budgetDate} value={validUntil} onChange={(event) => setValidUntil(event.target.value)} required /></label>
               </div>
             </fieldset>
 

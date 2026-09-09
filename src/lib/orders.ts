@@ -14,6 +14,7 @@ type OrderRow = {
   mechanic: string | null;
   mechanic_id: string | null;
   budget_date: string | null;
+  valid_until: string | null;
   sale_date: string | null;
   total: string | number;
   discount: string | number;
@@ -45,6 +46,7 @@ export async function getDashboardData(companyId: string): Promise<DashboardData
         o.mechanic_name AS mechanic,
         o.mechanic_id::text,
         o.budget_date::text,
+        o.valid_until::text,
         o.sale_date::text,
         o.total_value AS total,
         o.discount_value AS discount,
@@ -90,6 +92,7 @@ export async function getDashboardData(companyId: string): Promise<DashboardData
       mechanic: row.mechanic ?? undefined,
       mechanicId: row.mechanic_id ?? undefined,
       budgetDate: row.budget_date ?? undefined,
+      validUntil: row.valid_until ?? undefined,
       saleDate: row.sale_date ?? undefined,
       total: Number(row.total ?? 0),
       discount: Number(row.discount ?? 0),

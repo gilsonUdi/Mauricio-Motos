@@ -43,6 +43,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
           o.mechanic_name AS mechanic,
           o.mechanic_id::text,
           o.budget_date::text,
+          o.valid_until::text,
           o.sale_date::text,
           o.total_value AS total,
           o.discount_value AS discount,
@@ -87,6 +88,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
           mechanic: row.mechanic ?? undefined,
           mechanicId: row.mechanic_id ?? undefined,
           budgetDate: row.budget_date ?? undefined,
+          validUntil: row.valid_until ?? undefined,
           saleDate: row.sale_date ?? undefined,
           total: Number(row.total || 0),
           discount: Number(row.discount || 0),
@@ -122,4 +124,3 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     return NextResponse.json({ error: "Não foi possível gerar o PDF do orçamento." }, { status: 500 });
   }
 }
-

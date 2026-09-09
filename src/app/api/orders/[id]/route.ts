@@ -15,6 +15,7 @@ type OrderInput = {
   mileage?: number;
   mechanicId?: string;
   budgetDate?: string;
+  validUntil?: string;
   discount?: number;
   notes?: string;
   items?: ItemInput[];
@@ -132,15 +133,17 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const total = money(subtotal - discount);
     const servicesTotal = money(preparedItems.filter((item) => item.type.toLocaleLowerCase("pt-BR").includes("serv")).reduce((sum, item) => sum + item.quantity * item.unitPrice, 0));
     const budgetDate = /^\d{4}-\d{2}-\d{2}$/.test(body.budgetDate ?? "") ? body.budgetDate : null;
+    const validUntil = /^\d{4}-\d{2}-\d{2}$/.test(body.validUntil ?? "") ? body.validUntil : null;
+    if (budgetDate && validUntil && validUntil < budgetDate) throw new Error("INVALID_VALIDITY");
 
     const updated = await client.query(
       `UPDATE app_live.work_orders SET
          customer_id = $2::uuid, customer_name = $3, mechanic_id = $4::uuid, mechanic_name = $5,
-         budget_date = COALESCE($6::date, budget_date), discount_value = $7, total_value = $8,
-         vehicle_plate = $9, vehicle_model = $10, mileage = $11, notes = $12, services_total = $13
-       WHERE id=$1::uuid AND company_id=$14::uuid
-       RETURNING order_number, status, budget_date::text, payment_method`,
-      [id, customerId, customerName, mechanicId ?? null, mechanicName ?? null, budgetDate, discount, total, plate ?? null, model ?? null, mileage ?? null, clean(body.notes) ?? null, servicesTotal,scope.companyId],
+         budget_date = COALESCE($6::date, budget_date),valid_until=COALESCE($7::date,valid_until,COALESCE($6::date,budget_date,CURRENT_DATE)+7),discount_value = $8,total_value = $9,
+         vehicle_plate = $10,vehicle_model = $11,mileage = $12,notes = $13,services_total = $14
+       WHERE id=$1::uuid AND company_id=$15::uuid
+       RETURNING order_number,status,budget_date::text,valid_until::text,payment_method`,
+      [id,customerId,customerName,mechanicId ?? null,mechanicName ?? null,budgetDate,validUntil,discount,total,plate ?? null,model ?? null,mileage ?? null,clean(body.notes) ?? null,servicesTotal,scope.companyId],
     );
 
     await client.query(`DELETE FROM app_live.work_order_items WHERE work_order_id = $1::uuid`, [id]);
@@ -176,6 +179,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       mechanicId,
       mechanic: mechanicName,
       budgetDate: row.budget_date,
+      validUntil: row.valid_until,
       total,
       discount,
       status: row.status as OrderStatus,
@@ -196,6 +200,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       MECHANIC_NOT_FOUND: { message: "Mecânico não encontrado.", status: 400 },
       PRODUCT_NOT_FOUND: { message: "Produto ou serviço não encontrado.", status: 400 },
       ITEM_NAME_REQUIRED: { message: "Preencha a descrição de todos os itens.", status: 400 },
+      INVALID_VALIDITY: { message: "A validade não pode ser anterior à data do orçamento.", status: 400 },
     };
     const known = error instanceof Error ? knownErrors[error.message] : undefined;
     return NextResponse.json({ error: known?.message ?? "Não foi possível editar o orçamento." }, { status: known?.status ?? 500 });

@@ -105,6 +105,11 @@ h3 { font-size: 20px; }
 .service-notes p { margin: 4px 0 0; font-size: 13px; }
 .service-notes.approval-record { border-left-color: var(--green); background: #edf8f1; }
 .service-notes.approval-record span { color: #217044; }
+.service-notes.validity-record { border-left-color: #27719e; background: #edf6fb; }
+.service-notes.validity-record span { color: #245f82; }
+.service-notes.validity-record.expired { border-left-color: #b63f35; background: #fcedeb; }
+.service-notes.validity-record.expired span { color: #9b3028; }
+.status-badge.budget-expired { color: #9b3028; background: #fcedeb; }
 .actions-bar { display: flex; flex-wrap: wrap; gap: 9px; padding: 2px 24px 24px; }
 .action-button { background: #ece9e2; color: var(--ink); }
 .action-button.amber { background: var(--amber); }

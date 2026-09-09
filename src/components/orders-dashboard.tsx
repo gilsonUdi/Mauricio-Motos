@@ -8,6 +8,7 @@ import {
   Download,
   FileText,
   Gauge,
+  CalendarClock,
   Menu,
   Pencil,
   Search,
@@ -28,6 +29,9 @@ const statusLabels: Record<OrderStatus, string> = {
 };
 
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+type BudgetScope = "VIGENTES" | "VENCIDOS" | "APROVADOS" | "CANCELADOS" | "TODOS";
+const currentDateKey = () => new Date().toLocaleDateString("en-CA");
+const isExpired = (order: WorkOrder) => order.status === "ORCAMENTO" && Boolean(order.validUntil && order.validUntil < currentDateKey());
 
 function formatDate(value?: string) {
   if (!value) return "—";
@@ -53,6 +57,7 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
   const [selectedId, setSelectedId] = useState((budgetMode ? initialData.orders.find((order) => order.status === "ORCAMENTO") : initialData.orders[0])?.id ?? initialData.orders[0]?.id ?? "");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<OrderStatus | "TODOS">(budgetMode ? "ORCAMENTO" : "TODOS");
+  const [budgetScope, setBudgetScope] = useState<BudgetScope>("VIGENTES");
   const [mobileMenu, setMobileMenu] = useState(false);
   const [notice, setNotice] = useState("");
   const [creatingOrder, setCreatingOrder] = useState(false);
@@ -62,8 +67,14 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
 
   const filtered = useMemo(() => orders.filter((order) => {
     const haystack = `${order.number} ${order.customer} ${order.plate ?? ""} ${order.model ?? ""}`.toLowerCase();
-    return (filter === "TODOS" || order.status === filter) && haystack.includes(query.toLowerCase());
-  }), [filter, orders, query]);
+    const matchesScope = !budgetMode ? filter === "TODOS" || order.status === filter
+      : budgetScope === "TODOS" ? true
+      : budgetScope === "VIGENTES" ? order.status === "ORCAMENTO" && !isExpired(order)
+      : budgetScope === "VENCIDOS" ? isExpired(order)
+      : budgetScope === "APROVADOS" ? order.status === "PEDIDO" || order.status === "VENDA_REALIZADA"
+      : order.status === "CANCELADO";
+    return matchesScope && haystack.includes(query.toLowerCase());
+  }), [budgetMode, budgetScope, filter, orders, query]);
   const selected = filtered.find((order) => order.id === selectedId) ?? filtered[0];
 
   const totals = useMemo(() => ({
@@ -75,7 +86,7 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
   const budgetTotals = useMemo(() => ({
     openValue: orders.filter((order) => order.status === "ORCAMENTO").reduce((sum, order) => sum + order.total, 0),
     approved: orders.filter((order) => order.status === "PEDIDO" || order.status === "VENDA_REALIZADA").length,
-    cancelled: orders.filter((order) => order.status === "CANCELADO").length,
+    expired: orders.filter(isExpired).length,
   }), [orders]);
 
   async function changeStatus(status: OrderStatus, financial?: SaleFinancialConfig, approval?: BudgetApprovalConfig) {
@@ -113,6 +124,7 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
       : [order, ...current]);
     setSelectedId(order.id);
     setFilter(budgetMode ? "ORCAMENTO" : "TODOS");
+    if (budgetMode) setBudgetScope("VIGENTES");
     setQuery("");
     setCreatingOrder(false);
     setEditingOrder(null);
@@ -143,7 +155,7 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
           {budgetMode ? <>
             <StatCard label="Valor em aberto" value={currency.format(budgetTotals.openValue)} />
             <StatCard label="Aprovados" value={String(budgetTotals.approved)} tone="green" />
-            <StatCard label="Cancelados" value={String(budgetTotals.cancelled)} />
+            <StatCard label="Vencidos" value={String(budgetTotals.expired)} />
           </> : <>
             <StatCard label="Em execução" value={String(totals.inProgress)} tone="blue" />
             <StatCard label="Concluídos" value={String(totals.completed)} tone="green" />
@@ -159,18 +171,19 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
             </div>
             <div className="filters">
               <label className="search-box"><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cliente, pedido ou placa" /></label>
-              <select value={filter} onChange={(event) => setFilter(event.target.value as OrderStatus | "TODOS")}>
-                <option value="TODOS">Todos os status</option>
-                {Object.entries(statusLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
-              </select>
+              {budgetMode ? <select value={budgetScope} onChange={(event) => setBudgetScope(event.target.value as BudgetScope)}>
+                <option value="VIGENTES">Vigentes</option><option value="VENCIDOS">Vencidos</option><option value="APROVADOS">Aprovados</option><option value="CANCELADOS">Cancelados</option><option value="TODOS">Todos</option>
+              </select> : <select value={filter} onChange={(event) => setFilter(event.target.value as OrderStatus | "TODOS")}>
+                <option value="TODOS">Todos os status</option>{Object.entries(statusLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+              </select>}
             </div>
             <div className="order-list">
               {filtered.map((order) => (
                 <button className={`order-card ${selected?.id === order.id ? "selected" : ""}`} key={order.id} onClick={() => setSelectedId(order.id)}>
-                  <div className="order-card-top"><span>#{order.number}</span><StatusBadge status={order.status} /></div>
+                  <div className="order-card-top"><span>#{order.number}</span>{isExpired(order) ? <span className="status-badge budget-expired">Vencido</span> : <StatusBadge status={order.status} />}</div>
                   <strong>{order.customer}</strong>
                   <p>{order.plate ?? "Sem placa"} · {order.model ?? "Modelo não informado"}</p>
-                  <div className="order-card-bottom"><span>{formatDate(order.budgetDate)}</span><b>{currency.format(order.total)}</b><ChevronRight size={18} /></div>
+                  <div className="order-card-bottom"><span>{budgetMode && order.validUntil ? `Validade: ${formatDate(order.validUntil)}` : formatDate(order.budgetDate)}</span><b>{currency.format(order.total)}</b><ChevronRight size={18} /></div>
                 </button>
               ))}
               {!filtered.length && <div className="empty-state">Nenhuma ordem encontrada para estes filtros.</div>}
@@ -205,6 +218,8 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
                 </div>
 
                 <div className="service-notes"><Gauge size={18} /><div><span>Observações</span><p>{selected.notes ?? "Nenhuma observação registrada."}</p></div></div>
+
+                {selected.validUntil && <div className={`service-notes validity-record ${isExpired(selected) ? "expired" : ""}`}><CalendarClock size={18} /><div><span>Validade do orçamento</span><p>{formatDate(selected.validUntil)}{isExpired(selected) ? " · prazo vencido" : selected.status === "ORCAMENTO" ? " · vigente" : ""}</p></div></div>}
 
                 {selected.approvedAt && <div className="service-notes approval-record"><CheckCircle2 size={18} /><div><span>Aprovação do cliente</span><p><strong>{selected.approvedByCustomer ?? selected.customer}</strong> · {selected.approvalMethod ?? "Canal não informado"} · {formatDateTime(selected.approvedAt)}{selected.approvalNotes ? <><br />{selected.approvalNotes}</> : null}</p></div></div>}
 

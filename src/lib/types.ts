@@ -22,6 +22,7 @@ export type WorkOrder = {
   mechanic?: string;
   mechanicId?: string;
   budgetDate?: string;
+  validUntil?: string;
   saleDate?: string;
   total: number;
   discount?: number;

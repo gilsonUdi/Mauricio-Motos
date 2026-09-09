@@ -22,6 +22,7 @@ type OrderInput = {
   mileage?: number;
   mechanicId?: string;
   budgetDate?: string;
+  validUntil?: string;
   discount?: number;
   notes?: string;
   items?: ItemInput[];
@@ -133,6 +134,8 @@ export async function POST(request: Request) {
       .filter((item) => item.type.toLocaleLowerCase("pt-BR").includes("serv"))
       .reduce((sum, item) => sum + item.quantity * item.unitPrice, 0));
     const budgetDate = /^\d{4}-\d{2}-\d{2}$/.test(body.budgetDate ?? "") ? body.budgetDate : null;
+    const validUntil = /^\d{4}-\d{2}-\d{2}$/.test(body.validUntil ?? "") ? body.validUntil : null;
+    if (budgetDate && validUntil && validUntil < budgetDate) throw new Error("INVALID_VALIDITY");
 
     await client.query(`SELECT pg_advisory_xact_lock(hashtext('app_live.work_order_number:' || $1::text || ':' || to_char(CURRENT_DATE, 'YYYYMM')))`,[scope.companyId]);
     const sequence = await client.query(`
@@ -146,11 +149,11 @@ export async function POST(request: Request) {
 
     const insertedOrder = await client.query(
       `INSERT INTO app_live.work_orders (
-        company_id,order_number, customer_id, customer_name, mechanic_id, mechanic_name, budget_date,
+        company_id,order_number, customer_id, customer_name, mechanic_id, mechanic_name, budget_date,valid_until,
         status, discount_value, total_value, vehicle_plate, vehicle_model, mileage, notes, services_total
-      ) VALUES ($1::uuid,$2,$3::uuid,$4,$5::uuid,$6,COALESCE($7::date,CURRENT_DATE),'ORCAMENTO',$8,$9,$10,$11,$12,$13,$14)
-      RETURNING id::text, budget_date::text`,
-      [scope.companyId,orderNumber, customerId, customerName, mechanicId ?? null, mechanicName ?? null, budgetDate, discount, total, plate ?? null, model ?? null, mileage ?? null, clean(body.notes) ?? null, servicesTotal],
+      ) VALUES ($1::uuid,$2,$3::uuid,$4,$5::uuid,$6,COALESCE($7::date,CURRENT_DATE),COALESCE($8::date,COALESCE($7::date,CURRENT_DATE)+7),'ORCAMENTO',$9,$10,$11,$12,$13,$14,$15)
+      RETURNING id::text, budget_date::text,valid_until::text`,
+      [scope.companyId,orderNumber,customerId,customerName,mechanicId ?? null,mechanicName ?? null,budgetDate,validUntil,discount,total,plate ?? null,model ?? null,mileage ?? null,clean(body.notes) ?? null,servicesTotal],
     );
     const orderId = insertedOrder.rows[0].id;
 
@@ -185,6 +188,7 @@ export async function POST(request: Request) {
       mechanic: mechanicName,
       mechanicId,
       budgetDate: insertedOrder.rows[0].budget_date,
+      validUntil: insertedOrder.rows[0].valid_until,
       total,
       discount,
       status: "ORCAMENTO",
@@ -202,6 +206,7 @@ export async function POST(request: Request) {
       MECHANIC_NOT_FOUND: "Mecânico não encontrado.",
       PRODUCT_NOT_FOUND: "Produto ou serviço não encontrado.",
       ITEM_NAME_REQUIRED: "Preencha a descrição de todos os itens.",
+      INVALID_VALIDITY: "A validade não pode ser anterior à data do orçamento.",
     };
     const message = error instanceof Error ? knownErrors[error.message] : undefined;
     return NextResponse.json({ error: message ?? "Não foi possível criar o orçamento." }, { status: message ? 400 : 500 });

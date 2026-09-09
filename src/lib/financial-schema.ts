@@ -184,6 +184,8 @@ CREATE TABLE IF NOT EXISTS app_live.inventory_cost_history (
 );
 
 ALTER TABLE app_live.work_orders ADD COLUMN IF NOT EXISTS approved_at timestamptz;
+ALTER TABLE app_live.work_orders ADD COLUMN IF NOT EXISTS valid_until date;
+UPDATE app_live.work_orders SET valid_until=COALESCE(budget_date,CURRENT_DATE)+7 WHERE valid_until IS NULL AND status='ORCAMENTO';
 ALTER TABLE app_live.work_orders ADD COLUMN IF NOT EXISTS approved_by_customer text;
 ALTER TABLE app_live.work_orders ADD COLUMN IF NOT EXISTS approval_method text;
 ALTER TABLE app_live.work_orders ADD COLUMN IF NOT EXISTS approval_notes text;
