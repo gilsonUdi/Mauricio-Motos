@@ -3,7 +3,7 @@ import { hasPermission, type Permission, sessionCookie } from "@/lib/auth-shared
 import { verifySessionToken } from "@/lib/auth-token";
 
 const rules: Array<[RegExp, Permission]> = [
-  [/^\/$/, "atendimento"], [/^\/api\/orders/, "atendimento"],
+  [/^\/$/, "atendimento"], [/^\/orcamentos/, "atendimento"], [/^\/api\/orders/, "atendimento"],
   [/^\/compras/, "compras"], [/^\/api\/purchases/, "compras"],
   [/^\/receber/, "receber"], [/^\/conferencia/, "conferencia"],
   [/^\/pagar/, "pagar"], [/^\/api\/payables/, "pagar"],

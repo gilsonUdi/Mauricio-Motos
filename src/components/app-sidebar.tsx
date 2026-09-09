@@ -25,7 +25,7 @@ import type { Permission } from "@/lib/auth-shared";
 
 const entries: Array<{ id: Permission | "orcamentos"; label: string; icon: typeof Bike; href?: string }> = [
   { id: "atendimento", label: "Atendimento", icon: LayoutDashboard, href: "/" },
-  { id: "orcamentos", label: "Orçamentos", icon: ClipboardList },
+  { id: "orcamentos", label: "Orçamentos", icon: ClipboardList, href: "/orcamentos" },
   { id: "compras", label: "Compras", icon: PackageSearch, href: "/compras" },
   { id: "receber", label: "Contas a receber", icon: CircleDollarSign, href: "/receber" },
   { id: "pagar", label: "Contas a pagar", icon: WalletCards, href: "/pagar" },
@@ -45,7 +45,7 @@ const entries: Array<{ id: Permission | "orcamentos"; label: string; icon: typeo
 
 export function AppSidebar({ active }: { active: string }) {
   const { enabled, user } = useAuth();
-  const visibleEntries = entries.filter((entry) => entry.id === "orcamentos" || !enabled || user?.role === "ADMIN" || user?.permissions.includes(entry.id));
+  const visibleEntries = entries.filter((entry) => !enabled || user?.role === "ADMIN" || (entry.id === "orcamentos" ? user?.permissions.includes("atendimento") : user?.permissions.includes(entry.id)));
   async function logout() { await fetch("/api/auth/logout", { method: "POST" }); window.location.assign("/login"); }
   return (
     <aside className="sidebar">

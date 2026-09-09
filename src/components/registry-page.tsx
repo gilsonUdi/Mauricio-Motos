@@ -12,7 +12,7 @@ type SupplierOption = { id: string; name: string };
 type FieldDefinition = {
   key: string;
   label: string;
-  type?: "text" | "number" | "checkbox" | "customer" | "supplier" | "select" | "document" | "zip" | "plate";
+  type?: "text" | "number" | "checkbox" | "customer" | "supplier" | "select" | "document" | "zip";
   required?: boolean;
   step?: string;
   placeholder?: string;
@@ -59,7 +59,7 @@ const configs: Record<RegistryEntity, {
     description: "Motos e veículos vinculados aos clientes da oficina.",
     fields: [
       { key: "customerId", label: "Cliente", type: "customer" },
-      { key: "plate", label: "Placa", type: "plate", required: true },
+      { key: "plate", label: "Placa", required: true, placeholder: "ABC1D23" },
       { key: "model", label: "Modelo/descrição" },
       { key: "brand", label: "Marca" },
       { key: "manufactureYear", label: "Ano de fabricação", type: "number", step: "1" },
@@ -184,7 +184,7 @@ export function RegistryPage({ entity }: { entity: RegistryEntity }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [mobileMenu, setMobileMenu] = useState(false);
-  const [lookupLoading,setLookupLoading]=useState<"cep"|"cnpj"|"plate">();
+  const [lookupLoading,setLookupLoading]=useState<"cep"|"cnpj">();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -239,12 +239,10 @@ export function RegistryPage({ entity }: { entity: RegistryEntity }) {
     }
   }
 
-  async function lookup(type:"cep"|"cnpj"|"plate") {
-    const key=type==="cep"?"zipCode":type==="cnpj"?"document":"plate";
-    const rawValue=String(form[key]??"");
-    const value=type==="plate"?rawValue.toUpperCase().replace(/[^A-Z0-9]/g,""):rawValue.replace(/\D/g,"");
+  async function lookup(type:"cep"|"cnpj") {
+    const key=type==="cep"?"zipCode":"document";const value=String(form[key]??"").replace(/\D/g,"");
     setLookupLoading(type);setError("");
-    try { const response=await fetch(`/api/registry-lookup?type=${type}&value=${encodeURIComponent(value)}`);const payload=await response.json();if(!response.ok)throw new Error(payload.error??"Não foi possível consultar os dados.");setForm(current=>({...current,...payload}));setNotice(type==="cep"?"Endereço preenchido pelo CEP.":type==="cnpj"?"Dados do CNPJ preenchidos. Revise antes de salvar.":"Dados do veículo preenchidos pela placa. Revise antes de salvar."); }
+    try { const response=await fetch(`/api/registry-lookup?type=${type}&value=${encodeURIComponent(value)}`);const payload=await response.json();if(!response.ok)throw new Error(payload.error??"Não foi possível consultar os dados.");setForm(current=>({...current,...payload}));setNotice(type==="cep"?"Endereço preenchido pelo CEP.":"Dados do CNPJ preenchidos. Revise antes de salvar."); }
     catch(caught){setError(caught instanceof Error?caught.message:"Não foi possível consultar os dados.");}
     finally{setLookupLoading(undefined);}
   }
@@ -300,8 +298,8 @@ export function RegistryPage({ entity }: { entity: RegistryEntity }) {
                 <label className="field span-2" key={field.key}><span>{field.label}</span><select value={String(form[field.key] ?? "")} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))}><option value="">Sem fornecedor vinculado</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></label>
               ) : field.type === "select" ? (
                 <label className="field" key={field.key}><span>{field.label}{field.required ? " *" : ""}</span><select required={field.required} value={String(form[field.key] ?? field.options?.[0]?.value ?? "")} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))}>{field.options?.map((option)=><option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
-              ) : field.type === "document" || field.type === "zip" || field.type === "plate" ? (
-                <label className="field lookup-field" key={field.key}><span>{field.label}{field.required ? " *" : ""}</span><div><input inputMode={field.type==="plate"?"text":"numeric"} required={field.required} value={String(form[field.key] ?? "")} placeholder={field.type==="zip"?"00000-000":field.type==="plate"?"ABC1D23":"Somente números"} maxLength={field.type==="plate"?8:undefined} onChange={(event)=>setForm(current=>({...current,[field.key]:field.type==="plate"?event.target.value.toUpperCase():event.target.value}))}/><button type="button" onClick={()=>void lookup(field.type==="zip"?"cep":field.type==="plate"?"plate":"cnpj")} disabled={lookupLoading!==undefined||(field.type==="zip"?String(form[field.key]??"").replace(/\D/g,"").length!==8:field.type==="plate"?String(form[field.key]??"").replace(/[^A-Za-z0-9]/g,"").length!==7:String(form[field.key]??"").replace(/\D/g,"").length!==14)}>{lookupLoading===(field.type==="zip"?"cep":field.type==="plate"?"plate":"cnpj")?<LoaderCircle className="spin" size={15}/>:<Search size={15}/>} {field.type==="zip"?"Buscar CEP":field.type==="plate"?"Buscar placa":"Buscar CNPJ"}</button></div></label>
+              ) : field.type === "document" || field.type === "zip" ? (
+                <label className="field lookup-field" key={field.key}><span>{field.label}{field.required ? " *" : ""}</span><div><input inputMode="numeric" required={field.required} value={String(form[field.key] ?? "")} placeholder={field.type==="zip"?"00000-000":"Somente números"} onChange={(event)=>setForm(current=>({...current,[field.key]:event.target.value}))}/><button type="button" onClick={()=>void lookup(field.type==="zip"?"cep":"cnpj")} disabled={lookupLoading!==undefined||(field.type==="zip"?String(form[field.key]??"").replace(/\D/g,"").length!==8:String(form[field.key]??"").replace(/\D/g,"").length!==14)}>{lookupLoading===(field.type==="zip"?"cep":"cnpj")?<LoaderCircle className="spin" size={15}/>:<Search size={15}/>} {field.type==="zip"?"Buscar CEP":"Buscar CNPJ"}</button></div></label>
               ) : (
                 <label className={`field ${field.key === "name" ? "span-2" : ""}`} key={field.key}><span>{field.label}{field.required ? " *" : ""}</span><input type={field.type ?? "text"} min={field.type === "number" ? "0" : undefined} step={field.step} required={field.required} value={String(form[field.key] ?? "")} placeholder={field.placeholder} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))} /></label>
               ))}

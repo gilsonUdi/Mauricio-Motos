@@ -9,6 +9,7 @@ Aplicação web para substituir gradualmente o AppSheet da oficina, preservando 
 - detalhe de cliente, veículo, mecânico, produtos e serviços;
 - transições entre orçamento, pedido, venda realizada e cancelamento;
 - geração de orçamento em PDF para impressão ou envio ao cliente;
+- área própria para acompanhar orçamentos, aprová-los e convertê-los em pedidos;
 - registro de alterações no banco.
 
 Sem `DATABASE_URL`, a aplicação abre em modo de demonstração. Em produção, use o host interno do PostgreSQL no Easypanel.
@@ -38,4 +39,4 @@ O estoque calcula giro apenas a partir de vendas concluídas, cobertura em dias,
 
 Os cadastros de clientes e fornecedores validam CPF/CNPJ no backend. A consulta de CEP usa o ViaCEP e a consulta cadastral de CNPJ usa a BrasilAPI, sempre pelo backend para manter o formulário independente dos provedores externos.
 
-O cadastro de veículos pode preencher marca, modelo, anos, cor, combustível, cilindrada e município/UF pela placa. Configure `PLACA_FIPE_API_TOKEN` no backend com o token do plano contratado na Placa FIPE; `PLACA_FIPE_API_URL` é opcional. Sem o token, o cadastro manual continua disponível normalmente. A migração `db/migrations/009_vehicle_lookup.sql` documenta os novos campos e eles também são garantidos automaticamente no primeiro acesso autenticado após o deploy.
+O cadastro manual de veículos inclui marca, modelo, anos, cor, combustível, cilindrada e município/UF. A migração `db/migrations/009_vehicle_lookup.sql` documenta os novos campos e eles também são garantidos automaticamente no primeiro acesso autenticado após o deploy.

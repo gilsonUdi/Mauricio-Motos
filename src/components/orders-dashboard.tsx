@@ -41,28 +41,34 @@ function StatusBadge({ status }: { status: OrderStatus }) {
   return <span className={`status-badge status-${status.toLowerCase()}`}>{statusLabels[status]}</span>;
 }
 
-export function OrdersDashboard({ initialData }: { initialData: DashboardData }) {
+export function OrdersDashboard({ initialData, mode = "atendimento" }: { initialData: DashboardData; mode?: "atendimento" | "orcamentos" }) {
+  const budgetMode = mode === "orcamentos";
   const [orders, setOrders] = useState(initialData.orders);
-  const [selectedId, setSelectedId] = useState(initialData.orders[0]?.id ?? "");
+  const [selectedId, setSelectedId] = useState((budgetMode ? initialData.orders.find((order) => order.status === "ORCAMENTO") : initialData.orders[0])?.id ?? initialData.orders[0]?.id ?? "");
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<OrderStatus | "TODOS">("TODOS");
+  const [filter, setFilter] = useState<OrderStatus | "TODOS">(budgetMode ? "ORCAMENTO" : "TODOS");
   const [mobileMenu, setMobileMenu] = useState(false);
   const [notice, setNotice] = useState("");
   const [creatingOrder, setCreatingOrder] = useState(false);
   const [editingOrder, setEditingOrder] = useState<WorkOrder | null>(null);
   const [closingSale, setClosingSale] = useState<WorkOrder | null>(null);
-  const selected = orders.find((order) => order.id === selectedId) ?? orders[0];
 
   const filtered = useMemo(() => orders.filter((order) => {
     const haystack = `${order.number} ${order.customer} ${order.plate ?? ""} ${order.model ?? ""}`.toLowerCase();
     return (filter === "TODOS" || order.status === filter) && haystack.includes(query.toLowerCase());
   }), [filter, orders, query]);
+  const selected = filtered.find((order) => order.id === selectedId) ?? filtered[0];
 
   const totals = useMemo(() => ({
     open: orders.filter((order) => order.status === "ORCAMENTO").length,
     inProgress: orders.filter((order) => order.status === "PEDIDO").length,
     completed: orders.filter((order) => order.status === "VENDA_REALIZADA").length,
     revenue: orders.filter((order) => order.status === "VENDA_REALIZADA").reduce((sum, order) => sum + order.total, 0),
+  }), [orders]);
+  const budgetTotals = useMemo(() => ({
+    openValue: orders.filter((order) => order.status === "ORCAMENTO").reduce((sum, order) => sum + order.total, 0),
+    approved: orders.filter((order) => order.status === "PEDIDO" || order.status === "VENDA_REALIZADA").length,
+    cancelled: orders.filter((order) => order.status === "CANCELADO").length,
   }), [orders]);
 
   async function changeStatus(status: OrderStatus, financial?: SaleFinancialConfig) {
@@ -97,7 +103,7 @@ export function OrdersDashboard({ initialData }: { initialData: DashboardData })
       ? current.map((entry) => entry.id === order.id ? order : entry)
       : [order, ...current]);
     setSelectedId(order.id);
-    setFilter("TODOS");
+    setFilter(budgetMode ? "ORCAMENTO" : "TODOS");
     setQuery("");
     setCreatingOrder(false);
     setEditingOrder(null);
@@ -106,13 +112,14 @@ export function OrdersDashboard({ initialData }: { initialData: DashboardData })
 
   return (
     <div className="app-shell">
-      <AppSidebar active="atendimento" />
+      <AppSidebar active={mode} />
       <main className="workspace">
         <header className="topbar">
           <button className="mobile-menu" onClick={() => setMobileMenu(!mobileMenu)} aria-label="Abrir menu"><Menu /></button>
           <div>
-            <p className="eyebrow">OFICINA</p>
-            <h1>Gestão de atendimento</h1>
+            <p className="eyebrow">{budgetMode ? "COMERCIAL" : "OFICINA"}</p>
+            <h1>{budgetMode ? "Orçamentos e aprovações" : "Gestão de atendimento"}</h1>
+            {budgetMode && <p className="page-description">Acompanhe propostas em aberto e converta as aprovadas em pedidos.</p>}
           </div>
           <div className="topbar-actions">
             {!initialData.connected && <span className="demo-pill">Prévia com dados de demonstração</span>}
@@ -122,17 +129,23 @@ export function OrdersDashboard({ initialData }: { initialData: DashboardData })
 
         {mobileMenu && <div className="mobile-shortcuts">Atendimento · Orçamentos · Clientes · Estoque · Financeiro</div>}
 
-        <section className="stats-grid" aria-label="Resumo do atendimento">
+        <section className="stats-grid" aria-label={budgetMode ? "Resumo dos orçamentos" : "Resumo do atendimento"}>
           <StatCard label="Orçamentos abertos" value={String(totals.open)} tone="amber" />
-          <StatCard label="Em execução" value={String(totals.inProgress)} tone="blue" />
-          <StatCard label="Concluídos" value={String(totals.completed)} tone="green" />
-          <StatCard label="Vendas no painel" value={currency.format(totals.revenue)} />
+          {budgetMode ? <>
+            <StatCard label="Valor em aberto" value={currency.format(budgetTotals.openValue)} />
+            <StatCard label="Aprovados" value={String(budgetTotals.approved)} tone="green" />
+            <StatCard label="Cancelados" value={String(budgetTotals.cancelled)} />
+          </> : <>
+            <StatCard label="Em execução" value={String(totals.inProgress)} tone="blue" />
+            <StatCard label="Concluídos" value={String(totals.completed)} tone="green" />
+            <StatCard label="Vendas no painel" value={currency.format(totals.revenue)} />
+          </>}
         </section>
 
         <section className="service-board">
           <div className="orders-column">
             <div className="panel-heading">
-              <div><span className="section-kicker">ORDENS DE SERVIÇO</span><h2>Fila de atendimento</h2></div>
+              <div><span className="section-kicker">{budgetMode ? "PROPOSTAS COMERCIAIS" : "ORDENS DE SERVIÇO"}</span><h2>{budgetMode ? "Orçamentos cadastrados" : "Fila de atendimento"}</h2></div>
               <span className="count-bubble">{filtered.length}</span>
             </div>
             <div className="filters">
