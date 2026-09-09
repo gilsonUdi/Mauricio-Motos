@@ -16,6 +16,15 @@ ALTER TABLE app_live.customers ADD COLUMN IF NOT EXISTS district text;
 ALTER TABLE app_live.customers ADD COLUMN IF NOT EXISTS city text;
 ALTER TABLE app_live.customers ADD COLUMN IF NOT EXISTS state text;
 
+ALTER TABLE app_live.vehicles ADD COLUMN IF NOT EXISTS manufacture_year integer;
+ALTER TABLE app_live.vehicles ADD COLUMN IF NOT EXISTS model_year integer;
+ALTER TABLE app_live.vehicles ADD COLUMN IF NOT EXISTS color text;
+ALTER TABLE app_live.vehicles ADD COLUMN IF NOT EXISTS fuel text;
+ALTER TABLE app_live.vehicles ADD COLUMN IF NOT EXISTS engine_displacement text;
+ALTER TABLE app_live.vehicles ADD COLUMN IF NOT EXISTS registration_city text;
+ALTER TABLE app_live.vehicles ADD COLUMN IF NOT EXISTS registration_state text;
+ALTER TABLE app_live.vehicles ADD COLUMN IF NOT EXISTS plate_lookup_at timestamptz;
+
 ALTER TABLE app_live.suppliers ADD COLUMN IF NOT EXISTS legal_name text;
 ALTER TABLE app_live.suppliers ADD COLUMN IF NOT EXISTS state_registration text;
 ALTER TABLE app_live.suppliers ADD COLUMN IF NOT EXISTS zip_code text;

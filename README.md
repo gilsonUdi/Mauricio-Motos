@@ -37,3 +37,5 @@ O demonstrativo `/drg` consolida receita bruta, descontos, impostos, receita lí
 O estoque calcula giro apenas a partir de vendas concluídas, cobertura em dias, ruptura e risco de ruptura usando estoque mínimo e prazo de reposição. O painel também mostra o valor atual a custo, o valor potencial de venda e a margem projetada do inventário.
 
 Os cadastros de clientes e fornecedores validam CPF/CNPJ no backend. A consulta de CEP usa o ViaCEP e a consulta cadastral de CNPJ usa a BrasilAPI, sempre pelo backend para manter o formulário independente dos provedores externos.
+
+O cadastro de veículos pode preencher marca, modelo, anos, cor, combustível, cilindrada e município/UF pela placa. Configure `PLACA_FIPE_API_TOKEN` no backend com o token do plano contratado na Placa FIPE; `PLACA_FIPE_API_URL` é opcional. Sem o token, o cadastro manual continua disponível normalmente. A migração `db/migrations/009_vehicle_lookup.sql` documenta os novos campos e eles também são garantidos automaticamente no primeiro acesso autenticado após o deploy.

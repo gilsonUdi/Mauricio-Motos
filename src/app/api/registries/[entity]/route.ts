@@ -79,9 +79,14 @@ export async function POST(request: Request, context: Context) {
       );
     } else if (entity === "vehicles") {
       inserted = await client.query(
-        `INSERT INTO app_live.vehicles (company_id,customer_id, plate, normalized_plate, description, brand, mileage)
-         VALUES ($1::uuid,$2::uuid,$3,$4,$5,$6,$7) RETURNING *`,
-        [scope.companyId,customerId, plate, plate!.replace(/[^A-Z0-9]/g, ""), cleanText(body.model), cleanText(body.brand), Math.max(0, Math.trunc(numberValue(body.mileage)))],
+        `INSERT INTO app_live.vehicles
+         (company_id,customer_id,plate,normalized_plate,description,brand,mileage,manufacture_year,model_year,color,fuel,
+          engine_displacement,registration_city,registration_state,plate_lookup_at)
+         VALUES ($1::uuid,$2::uuid,$3,$4,$5,$6,$7,$8::integer,$9::integer,$10,$11,$12,$13,$14,$15::timestamptz) RETURNING *`,
+        [scope.companyId,customerId,plate,plate!.replace(/[^A-Z0-9]/g, ""),cleanText(body.model),cleanText(body.brand),
+          Math.max(0,Math.trunc(numberValue(body.mileage))),cleanText(body.manufactureYear),cleanText(body.modelYear),cleanText(body.color),
+          cleanText(body.fuel),cleanText(body.engineDisplacement),cleanText(body.registrationCity),cleanText(body.registrationState)?.toUpperCase(),
+          cleanText(body.plateLookupAt)],
       );
       inserted.rows[0].customer_name = customerId
         ? (await client.query(`SELECT name FROM app_live.customers WHERE id=$1::uuid AND company_id=$2::uuid`, [customerId,scope.companyId])).rows[0]?.name ?? null

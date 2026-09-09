@@ -13,7 +13,8 @@ export const registryListSql: Record<RegistryEntity, string> = {
     FROM app_live.customers WHERE company_id=$1::uuid ORDER BY name`,
   vehicles: `
     SELECT v.id::text, v.customer_id::text, c.name AS customer_name, v.plate,
-           v.description, v.brand, v.mileage, v.updated_at
+           v.description, v.brand, v.mileage, v.manufacture_year, v.model_year, v.color, v.fuel,
+           v.engine_displacement, v.registration_city, v.registration_state, v.plate_lookup_at, v.updated_at
     FROM app_live.vehicles v
     LEFT JOIN app_live.customers c ON c.id = v.customer_id AND c.company_id=v.company_id
     WHERE v.company_id=$1::uuid
@@ -44,6 +45,9 @@ export function mapRegistryRecord(entity: RegistryEntity, row: Record<string, un
   if (entity === "vehicles") return {
     id: String(row.id), customerId: row.customer_id, customerName: row.customer_name,
     plate: row.plate, model: row.description, brand: row.brand,
+    manufactureYear: row.manufacture_year, modelYear: row.model_year, color: row.color, fuel: row.fuel,
+    engineDisplacement: row.engine_displacement, registrationCity: row.registration_city,
+    registrationState: row.registration_state, plateLookupAt: row.plate_lookup_at,
     mileage: row.mileage === null ? null : Number(row.mileage), updatedAt: row.updated_at,
   };
   if (entity === "products") return {
