@@ -12,6 +12,7 @@ import {
   CalendarClock,
   Menu,
   LoaderCircle,
+  MessageCircleMore,
   Pencil,
   Search,
   Share2,
@@ -20,6 +21,7 @@ import {
 import { useMemo, useState } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { BudgetApprovalModal } from "@/components/budget-approval-modal";
+import { BudgetFollowUpModal } from "@/components/budget-follow-up-modal";
 import { OrderFormModal } from "@/components/order-form-modal";
 import { SaleFinanceModal } from "@/components/sale-finance-modal";
 import type { BudgetApprovalConfig, DashboardData, OrderStatus, SaleFinancialConfig, WorkOrder } from "@/lib/types";
@@ -32,9 +34,10 @@ const statusLabels: Record<OrderStatus, string> = {
 };
 
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
-type BudgetScope = "VIGENTES" | "ENVIADOS" | "VENCIDOS" | "APROVADOS" | "CANCELADOS" | "TODOS";
+type BudgetScope = "VIGENTES" | "ENVIADOS" | "RETORNOS" | "VENCIDOS" | "APROVADOS" | "CANCELADOS" | "TODOS";
 const currentDateKey = () => new Date().toLocaleDateString("en-CA");
 const isExpired = (order: WorkOrder) => order.status === "ORCAMENTO" && Boolean(order.validUntil && order.validUntil < currentDateKey());
+const isFollowUpDue = (order:WorkOrder) => order.status === "ORCAMENTO" && Boolean(order.nextFollowUpAt && new Date(order.nextFollowUpAt).getTime() <= Date.now());
 const whatsappPhone = (value?: string) => {
   const digits = (value ?? "").replace(/\D/g, "");
   if (digits.length === 10 || digits.length === 11) return `55${digits}`;
@@ -74,6 +77,7 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
   const [approvingOrder, setApprovingOrder] = useState<WorkOrder | null>(null);
   const [duplicatingId, setDuplicatingId] = useState("");
   const [sharingId, setSharingId] = useState("");
+  const [followingUpOrder, setFollowingUpOrder] = useState<WorkOrder | null>(null);
 
   const filtered = useMemo(() => orders.filter((order) => {
     const haystack = `${order.number} ${order.customer} ${order.plate ?? ""} ${order.model ?? ""}`.toLowerCase();
@@ -81,6 +85,7 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
       : budgetScope === "TODOS" ? true
       : budgetScope === "VIGENTES" ? order.status === "ORCAMENTO" && !isExpired(order)
       : budgetScope === "ENVIADOS" ? order.status === "ORCAMENTO" && Number(order.shareCount ?? 0) > 0
+      : budgetScope === "RETORNOS" ? isFollowUpDue(order)
       : budgetScope === "VENCIDOS" ? isExpired(order)
       : budgetScope === "APROVADOS" ? order.status === "PEDIDO" || order.status === "VENDA_REALIZADA"
       : order.status === "CANCELADO";
@@ -256,7 +261,7 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
             <div className="filters">
               <label className="search-box"><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cliente, pedido ou placa" /></label>
               {budgetMode ? <select value={budgetScope} onChange={(event) => setBudgetScope(event.target.value as BudgetScope)}>
-                <option value="VIGENTES">Vigentes</option><option value="ENVIADOS">Enviados aguardando retorno</option><option value="VENCIDOS">Vencidos</option><option value="APROVADOS">Aprovados</option><option value="CANCELADOS">Cancelados</option><option value="TODOS">Todos</option>
+                <option value="VIGENTES">Vigentes</option><option value="ENVIADOS">Enviados aguardando retorno</option><option value="RETORNOS">Retornos para hoje ou atrasados</option><option value="VENCIDOS">Vencidos</option><option value="APROVADOS">Aprovados</option><option value="CANCELADOS">Cancelados</option><option value="TODOS">Todos</option>
               </select> : <select value={filter} onChange={(event) => setFilter(event.target.value as OrderStatus | "TODOS")}>
                 <option value="TODOS">Todos os status</option>{Object.entries(statusLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
               </select>}
@@ -264,7 +269,7 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
             <div className="order-list">
               {filtered.map((order) => (
                 <button className={`order-card ${selected?.id === order.id ? "selected" : ""}`} key={order.id} onClick={() => setSelectedId(order.id)}>
-                  <div className="order-card-top"><span>#{order.number}{(order.revisionNumber ?? 1) > 1 ? ` · R${order.revisionNumber}` : ""}</span>{isExpired(order) ? <span className="status-badge budget-expired">Vencido</span> : <StatusBadge status={order.status} />}</div>
+                  <div className="order-card-top"><span>#{order.number}{(order.revisionNumber ?? 1) > 1 ? ` · R${order.revisionNumber}` : ""}</span>{isExpired(order) ? <span className="status-badge budget-expired">Vencido</span> : isFollowUpDue(order) ? <span className="status-badge follow-up-due">Retorno pendente</span> : <StatusBadge status={order.status} />}</div>
                   <strong>{order.customer}</strong>
                   <p>{order.plate ?? "Sem placa"} · {order.model ?? "Modelo não informado"}</p>
                   <div className="order-card-bottom"><span>{budgetMode && order.validUntil ? `Validade: ${formatDate(order.validUntil)}` : formatDate(order.budgetDate)}</span><b>{currency.format(order.total)}</b><ChevronRight size={18} /></div>
@@ -307,11 +312,14 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
 
                 {selected.lastSharedAt && <div className="service-notes sharing-record"><Share2 size={18} /><div><span>Compartilhamento</span><p>Último envio em {formatDateTime(selected.lastSharedAt)} · {selected.shareCount ?? 1} envio(s)</p></div></div>}
 
+                {selected.lastFollowUpAt && <div className={`service-notes follow-up-record ${isFollowUpDue(selected) ? "due" : ""}`}><MessageCircleMore size={18} /><div><span>Acompanhamento comercial</span><p>{selected.followUpCount ?? 1} contato(s) · último em {formatDateTime(selected.lastFollowUpAt)}{selected.nextFollowUpAt ? <><br />Próximo retorno: {formatDateTime(selected.nextFollowUpAt)}</> : null}</p></div></div>}
+
                 {selected.approvedAt && <div className="service-notes approval-record"><CheckCircle2 size={18} /><div><span>Aprovação do cliente</span><p><strong>{selected.approvedByCustomer ?? selected.customer}</strong> · {selected.approvalMethod ?? "Canal não informado"} · {formatDateTime(selected.approvedAt)}{selected.approvalNotes ? <><br />{selected.approvalNotes}</> : null}</p></div></div>}
 
                 <div className="actions-bar">
                   <a className="action-button" href={`/api/orders/${selected.id}/pdf`} download><Download size={18} /> Baixar PDF</a>
                   {selected.status === "ORCAMENTO" && <button className="action-button green" onClick={() => void shareBudget()} disabled={Boolean(sharingId)}>{sharingId === selected.id ? <LoaderCircle className="spin" size={18} /> : <Share2 size={18} />}{sharingId === selected.id ? "Preparando..." : "Compartilhar PDF"}</button>}
+                  {selected.status === "ORCAMENTO" && <button className="action-button" onClick={() => setFollowingUpOrder(selected)}><MessageCircleMore size={18} /> Registrar contato</button>}
                   <button className="action-button" onClick={() => void duplicateOrder()} disabled={Boolean(duplicatingId)}>{duplicatingId === selected.id ? <LoaderCircle className="spin" size={18} /> : <Copy size={18} />}{duplicatingId === selected.id ? "Criando..." : "Criar nova versão"}</button>
                   {selected.status === "ORCAMENTO" && <button className="action-button" onClick={() => setEditingOrder(selected)}><Pencil size={18} /> Editar orçamento</button>}
                   {selected.status === "ORCAMENTO" && <button className="action-button amber" onClick={() => setApprovingOrder(selected)}><ClipboardList size={18} /> Registrar aprovação</button>}
@@ -328,6 +336,7 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
       {creatingOrder && <OrderFormModal onClose={() => setCreatingOrder(false)} onSaved={orderSaved} />}
       {editingOrder && <OrderFormModal initialOrder={editingOrder} onClose={() => setEditingOrder(null)} onSaved={orderSaved} />}
       {approvingOrder && <BudgetApprovalModal order={approvingOrder} onClose={() => setApprovingOrder(null)} onConfirm={(approval) => changeStatus("PEDIDO", undefined, approval)} />}
+      {followingUpOrder && <BudgetFollowUpModal order={followingUpOrder} onClose={() => setFollowingUpOrder(null)} onSaved={(summary) => setOrders((current) => current.map((entry) => entry.id === followingUpOrder.id ? { ...entry,...summary } : entry))} />}
       {closingSale && <SaleFinanceModal order={closingSale} onClose={() => setClosingSale(null)} onConfirm={config => changeStatus("VENDA_REALIZADA", config)} />}
     </div>
   );

@@ -14,6 +14,7 @@ Aplicação web para substituir gradualmente o AppSheet da oficina, preservando 
 - validade configurável e filtros de orçamentos vigentes e vencidos;
 - criação de novas versões sem sobrescrever a proposta ou o histórico original;
 - compartilhamento do PDF pelo celular ou WhatsApp Web, com data e quantidade de envios;
+- histórico de contatos comerciais e agenda de próximos retornos por orçamento;
 - registro de alterações no banco.
 
 Sem `DATABASE_URL`, a aplicação abre em modo de demonstração. Em produção, use o host interno do PostgreSQL no Easypanel.

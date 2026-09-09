@@ -112,6 +112,21 @@ h3 { font-size: 20px; }
 .status-badge.budget-expired { color: #9b3028; background: #fcedeb; }
 .service-notes.sharing-record { border-left-color: var(--green); background: #edf8f1; }
 .service-notes.sharing-record span { color: #217044; }
+.service-notes.follow-up-record { border-left-color: #7657a5; background: #f5f0fb; }
+.service-notes.follow-up-record span { color: #654491; }
+.service-notes.follow-up-record.due { border-left-color: #c77b13; background: #fff4df; }
+.status-badge.follow-up-due { color: #80530e; background: var(--amber-soft); }
+.form-success { margin: 12px 0 0; padding: 10px 12px; border-radius: 9px; color: #217044; background: #edf8f1; font-size: 13px; }
+.follow-up-modal { width: min(760px, 100%); }
+.follow-up-history { padding: 0 24px 24px; }
+.follow-up-history h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; padding-top: 18px; border-top: 1px solid var(--line); font-size: 15px; }
+.follow-up-history article { padding: 12px 14px; border: 1px solid var(--line); border-radius: 11px; background: #fffdf9; }
+.follow-up-history article + article { margin-top: 8px; }
+.follow-up-history article header { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; }
+.follow-up-history article time, .follow-up-history article p { color: var(--muted); }
+.follow-up-history article p { margin: 5px 0; font-size: 12px; }
+.follow-up-history blockquote { margin: 8px 0; padding-left: 10px; border-left: 2px solid var(--line); font-size: 13px; }
+.follow-up-history article small { display: flex; align-items: center; gap: 5px; color: #80530e; }
 .actions-bar { display: flex; flex-wrap: wrap; gap: 9px; padding: 2px 24px 24px; }
 .action-button { background: #ece9e2; color: var(--ink); }
 .action-button.amber { background: var(--amber); }

@@ -28,6 +28,9 @@ type OrderRow = {
   approval_notes: string | null;
   last_shared_at: string | null;
   share_count: number | null;
+  last_follow_up_at: string | null;
+  next_follow_up_at: string | null;
+  follow_up_count: number | null;
   notes: string | null;
   items: Array<{ id: string; productId?: string; name: string; type: string; quantity: number; unitPrice: number; total: number }> | null;
 };
@@ -64,6 +67,9 @@ export async function getDashboardData(companyId: string): Promise<DashboardData
         o.approval_notes,
         o.last_shared_at,
         o.share_count,
+        o.last_follow_up_at,
+        o.next_follow_up_at,
+        o.follow_up_count,
         o.notes,
         COALESCE(
           jsonb_agg(
@@ -114,6 +120,9 @@ export async function getDashboardData(companyId: string): Promise<DashboardData
       approvalNotes: row.approval_notes ?? undefined,
       lastSharedAt: row.last_shared_at ?? undefined,
       shareCount: Number(row.share_count ?? 0),
+      lastFollowUpAt: row.last_follow_up_at ?? undefined,
+      nextFollowUpAt: row.next_follow_up_at ?? undefined,
+      followUpCount: Number(row.follow_up_count ?? 0),
       notes: row.notes ?? undefined,
       items: row.items ?? [],
     }));

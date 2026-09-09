@@ -36,6 +36,9 @@ export type WorkOrder = {
   approvalNotes?: string;
   lastSharedAt?: string;
   shareCount?: number;
+  lastFollowUpAt?: string;
+  nextFollowUpAt?: string;
+  followUpCount?: number;
   notes?: string;
   items: OrderItem[];
 };
