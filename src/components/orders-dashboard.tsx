@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   ChevronRight,
   ClipboardList,
+  Download,
   FileText,
   Gauge,
   Menu,
@@ -184,6 +185,7 @@ export function OrdersDashboard({ initialData }: { initialData: DashboardData })
                 <div className="service-notes"><Gauge size={18} /><div><span>Observações</span><p>{selected.notes ?? "Nenhuma observação registrada."}</p></div></div>
 
                 <div className="actions-bar">
+                  <a className="action-button" href={`/api/orders/${selected.id}/pdf`} download><Download size={18} /> Baixar PDF</a>
                   {selected.status === "ORCAMENTO" && <button className="action-button" onClick={() => setEditingOrder(selected)}><Pencil size={18} /> Editar orçamento</button>}
                   {selected.status !== "PEDIDO" && selected.status !== "VENDA_REALIZADA" && <button className="action-button amber" onClick={() => changeStatus("PEDIDO")}><ClipboardList size={18} /> Gerar pedido</button>}
                   {selected.status !== "VENDA_REALIZADA" && <button className="action-button green" onClick={() => setClosingSale(selected)}><CheckCircle2 size={18} /> Concluir venda</button>}
