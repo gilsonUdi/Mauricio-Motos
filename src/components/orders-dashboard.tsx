@@ -14,6 +14,7 @@ import {
   LoaderCircle,
   Pencil,
   Search,
+  Share2,
   XCircle,
 } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -31,9 +32,14 @@ const statusLabels: Record<OrderStatus, string> = {
 };
 
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
-type BudgetScope = "VIGENTES" | "VENCIDOS" | "APROVADOS" | "CANCELADOS" | "TODOS";
+type BudgetScope = "VIGENTES" | "ENVIADOS" | "VENCIDOS" | "APROVADOS" | "CANCELADOS" | "TODOS";
 const currentDateKey = () => new Date().toLocaleDateString("en-CA");
 const isExpired = (order: WorkOrder) => order.status === "ORCAMENTO" && Boolean(order.validUntil && order.validUntil < currentDateKey());
+const whatsappPhone = (value?: string) => {
+  const digits = (value ?? "").replace(/\D/g, "");
+  if (digits.length === 10 || digits.length === 11) return `55${digits}`;
+  return digits.startsWith("55") && (digits.length === 12 || digits.length === 13) ? digits : "";
+};
 
 function formatDate(value?: string) {
   if (!value) return "—";
@@ -67,12 +73,14 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
   const [closingSale, setClosingSale] = useState<WorkOrder | null>(null);
   const [approvingOrder, setApprovingOrder] = useState<WorkOrder | null>(null);
   const [duplicatingId, setDuplicatingId] = useState("");
+  const [sharingId, setSharingId] = useState("");
 
   const filtered = useMemo(() => orders.filter((order) => {
     const haystack = `${order.number} ${order.customer} ${order.plate ?? ""} ${order.model ?? ""}`.toLowerCase();
     const matchesScope = !budgetMode ? filter === "TODOS" || order.status === filter
       : budgetScope === "TODOS" ? true
       : budgetScope === "VIGENTES" ? order.status === "ORCAMENTO" && !isExpired(order)
+      : budgetScope === "ENVIADOS" ? order.status === "ORCAMENTO" && Number(order.shareCount ?? 0) > 0
       : budgetScope === "VENCIDOS" ? isExpired(order)
       : budgetScope === "APROVADOS" ? order.status === "PEDIDO" || order.status === "VENDA_REALIZADA"
       : order.status === "CANCELADO";
@@ -156,6 +164,57 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
     }
   }
 
+  async function shareBudget() {
+    if (!selected) return;
+    const order = selected;
+    const phone = whatsappPhone(order.phone);
+    const firstName = order.customer.trim().split(/\s+/)[0] || order.customer;
+    const validity = order.validUntil ? `, válido até ${formatDate(order.validUntil)}` : "";
+    const message = `Olá, ${firstName}! Segue o orçamento nº ${order.number}, no valor de ${currency.format(order.total)}${validity}.`;
+    const probe = new File([""], "orcamento.pdf", { type: "application/pdf" });
+    const shareNavigator = navigator as unknown as {
+      share?: (data: ShareData) => Promise<void>;
+      canShare?: (data: ShareData) => boolean;
+    };
+    const nativeFileShare = Boolean(shareNavigator.share && shareNavigator.canShare?.({ files: [probe] }));
+    const whatsappWindow = !nativeFileShare && phone ? window.open("about:blank", "_blank") : null;
+    setSharingId(order.id);
+    try {
+      const pdfResponse = await fetch(`/api/orders/${order.id}/pdf`, { cache: "no-store" });
+      if (!pdfResponse.ok) {
+        const payload = await pdfResponse.json().catch(() => ({}));
+        throw new Error(payload.error ?? "Não foi possível preparar o PDF.");
+      }
+      const blob = await pdfResponse.blob();
+      const file = new File([blob], `orcamento-${order.number}.pdf`, { type: "application/pdf" });
+      if (nativeFileShare) {
+        await shareNavigator.share!({ title: `Orçamento ${order.number}`, text: message, files: [file] });
+      } else {
+        const downloadUrl = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = downloadUrl; anchor.download = file.name; document.body.appendChild(anchor); anchor.click(); anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+        if (whatsappWindow) whatsappWindow.location.href = `https://wa.me/${phone}?text=${encodeURIComponent(`${message}\n\nO PDF foi baixado; anexe-o nesta conversa.`)}`;
+      }
+      if (!initialData.connected) {
+        const sharedAt = new Date().toISOString();
+        setOrders((current) => current.map((entry) => entry.id === order.id ? { ...entry, lastSharedAt: sharedAt, shareCount: Number(entry.shareCount ?? 0) + 1 } : entry));
+      } else {
+        const tracked = await fetch(`/api/orders/${order.id}/share`, { method: "POST" });
+        const payload = await tracked.json();
+        if (!tracked.ok) throw new Error(payload.error ?? "Não foi possível registrar o compartilhamento.");
+        setOrders((current) => current.map((entry) => entry.id === order.id ? { ...entry, lastSharedAt: payload.lastSharedAt, shareCount: payload.shareCount } : entry));
+      }
+      setNotice(nativeFileShare ? "PDF compartilhado e envio registrado." : whatsappWindow ? "PDF baixado e conversa do WhatsApp preparada." : phone ? "PDF baixado. O navegador bloqueou a abertura do WhatsApp." : "PDF baixado. Cadastre um telefone para abrir o WhatsApp automaticamente.");
+    } catch (caught) {
+      whatsappWindow?.close();
+      if (caught instanceof DOMException && caught.name === "AbortError") return;
+      setNotice(caught instanceof Error ? caught.message : "Não foi possível compartilhar o orçamento.");
+    } finally {
+      setSharingId("");
+    }
+  }
+
   return (
     <div className="app-shell">
       <AppSidebar active={mode} />
@@ -197,7 +256,7 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
             <div className="filters">
               <label className="search-box"><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cliente, pedido ou placa" /></label>
               {budgetMode ? <select value={budgetScope} onChange={(event) => setBudgetScope(event.target.value as BudgetScope)}>
-                <option value="VIGENTES">Vigentes</option><option value="VENCIDOS">Vencidos</option><option value="APROVADOS">Aprovados</option><option value="CANCELADOS">Cancelados</option><option value="TODOS">Todos</option>
+                <option value="VIGENTES">Vigentes</option><option value="ENVIADOS">Enviados aguardando retorno</option><option value="VENCIDOS">Vencidos</option><option value="APROVADOS">Aprovados</option><option value="CANCELADOS">Cancelados</option><option value="TODOS">Todos</option>
               </select> : <select value={filter} onChange={(event) => setFilter(event.target.value as OrderStatus | "TODOS")}>
                 <option value="TODOS">Todos os status</option>{Object.entries(statusLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
               </select>}
@@ -246,10 +305,13 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
 
                 {selected.validUntil && <div className={`service-notes validity-record ${isExpired(selected) ? "expired" : ""}`}><CalendarClock size={18} /><div><span>Validade do orçamento</span><p>{formatDate(selected.validUntil)}{isExpired(selected) ? " · prazo vencido" : selected.status === "ORCAMENTO" ? " · vigente" : ""}</p></div></div>}
 
+                {selected.lastSharedAt && <div className="service-notes sharing-record"><Share2 size={18} /><div><span>Compartilhamento</span><p>Último envio em {formatDateTime(selected.lastSharedAt)} · {selected.shareCount ?? 1} envio(s)</p></div></div>}
+
                 {selected.approvedAt && <div className="service-notes approval-record"><CheckCircle2 size={18} /><div><span>Aprovação do cliente</span><p><strong>{selected.approvedByCustomer ?? selected.customer}</strong> · {selected.approvalMethod ?? "Canal não informado"} · {formatDateTime(selected.approvedAt)}{selected.approvalNotes ? <><br />{selected.approvalNotes}</> : null}</p></div></div>}
 
                 <div className="actions-bar">
                   <a className="action-button" href={`/api/orders/${selected.id}/pdf`} download><Download size={18} /> Baixar PDF</a>
+                  {selected.status === "ORCAMENTO" && <button className="action-button green" onClick={() => void shareBudget()} disabled={Boolean(sharingId)}>{sharingId === selected.id ? <LoaderCircle className="spin" size={18} /> : <Share2 size={18} />}{sharingId === selected.id ? "Preparando..." : "Compartilhar PDF"}</button>}
                   <button className="action-button" onClick={() => void duplicateOrder()} disabled={Boolean(duplicatingId)}>{duplicatingId === selected.id ? <LoaderCircle className="spin" size={18} /> : <Copy size={18} />}{duplicatingId === selected.id ? "Criando..." : "Criar nova versão"}</button>
                   {selected.status === "ORCAMENTO" && <button className="action-button" onClick={() => setEditingOrder(selected)}><Pencil size={18} /> Editar orçamento</button>}
                   {selected.status === "ORCAMENTO" && <button className="action-button amber" onClick={() => setApprovingOrder(selected)}><ClipboardList size={18} /> Registrar aprovação</button>}

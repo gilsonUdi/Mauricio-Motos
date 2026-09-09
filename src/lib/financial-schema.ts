@@ -192,6 +192,8 @@ CREATE INDEX IF NOT EXISTS idx_work_orders_source ON app_live.work_orders(compan
 ALTER TABLE app_live.work_orders ADD COLUMN IF NOT EXISTS approved_by_customer text;
 ALTER TABLE app_live.work_orders ADD COLUMN IF NOT EXISTS approval_method text;
 ALTER TABLE app_live.work_orders ADD COLUMN IF NOT EXISTS approval_notes text;
+ALTER TABLE app_live.work_orders ADD COLUMN IF NOT EXISTS last_shared_at timestamptz;
+ALTER TABLE app_live.work_orders ADD COLUMN IF NOT EXISTS share_count integer NOT NULL DEFAULT 0;
 ALTER TABLE app_live.work_orders ADD COLUMN IF NOT EXISTS completed_at timestamptz;
 ALTER TABLE app_live.work_orders ADD COLUMN IF NOT EXISTS financial_generated_at timestamptz;
 ALTER TABLE app_live.work_order_items ADD COLUMN IF NOT EXISTS unit_cost_snapshot numeric(14,4);

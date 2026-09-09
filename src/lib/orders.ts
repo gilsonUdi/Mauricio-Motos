@@ -26,6 +26,8 @@ type OrderRow = {
   approved_by_customer: string | null;
   approval_method: string | null;
   approval_notes: string | null;
+  last_shared_at: string | null;
+  share_count: number | null;
   notes: string | null;
   items: Array<{ id: string; productId?: string; name: string; type: string; quantity: number; unitPrice: number; total: number }> | null;
 };
@@ -60,6 +62,8 @@ export async function getDashboardData(companyId: string): Promise<DashboardData
         o.approved_by_customer,
         o.approval_method,
         o.approval_notes,
+        o.last_shared_at,
+        o.share_count,
         o.notes,
         COALESCE(
           jsonb_agg(
@@ -108,6 +112,8 @@ export async function getDashboardData(companyId: string): Promise<DashboardData
       approvedByCustomer: row.approved_by_customer ?? undefined,
       approvalMethod: row.approval_method ?? undefined,
       approvalNotes: row.approval_notes ?? undefined,
+      lastSharedAt: row.last_shared_at ?? undefined,
+      shareCount: Number(row.share_count ?? 0),
       notes: row.notes ?? undefined,
       items: row.items ?? [],
     }));
