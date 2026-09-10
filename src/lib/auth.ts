@@ -6,6 +6,7 @@ import { ensureFinancialSchema } from "@/lib/financial-schema";
 import { ensureCatalogSchema } from "@/lib/catalog-schema";
 import { ensureOperationalFinanceSchema } from "@/lib/operational-finance-schema";
 import { ensureSaleFinanceSchema } from "@/lib/sale-finance-schema";
+import { ensureAuditSchema } from "@/lib/audit-schema";
 export { permissionIds, sessionCookie, hasPermission } from "@/lib/auth-shared";
 export type { Permission, SessionUser } from "@/lib/auth-shared";
 export { createSessionToken, verifySessionToken } from "@/lib/auth-token";
@@ -46,6 +47,7 @@ export async function ensureAuthSchema() {
     await ensureCatalogSchema(pool);
     await ensureOperationalFinanceSchema(pool);
     await ensureSaleFinanceSchema(pool);
+    await ensureAuditSchema(pool);
     const email = process.env.AUTH_ADMIN_EMAIL?.trim().toLowerCase();
     const password = process.env.AUTH_ADMIN_PASSWORD;
     if (email && password) await pool.query(

@@ -93,9 +93,9 @@ export async function POST(request: Request) {
       [scope.companyId,body.productId, date, body.type, movementQuantity, partyName, newStock],
     );
     await client.query(
-      `INSERT INTO app_live.audit_log (entity_type, entity_id, action, details)
-       VALUES ('inventory_movement', $1::uuid, 'created', $2::jsonb)`,
-      [movement.rows[0].id, JSON.stringify({ productId: body.productId, productName: product.rows[0].name, type: body.type, quantity: movementQuantity, previousBalance: oldStock, balance: newStock })],
+      `INSERT INTO app_live.audit_log (entity_type, entity_id, action, actor_id, details)
+       VALUES ('inventory_movement', $1::uuid, 'created', $2::uuid, $3::jsonb)`,
+      [movement.rows[0].id, scope.user?.id ?? null, JSON.stringify({ productId: body.productId, productName: product.rows[0].name, type: body.type, quantity: movementQuantity, previousBalance: oldStock, balance: newStock, companyId: scope.companyId })],
     );
     await client.query("COMMIT");
     return NextResponse.json({

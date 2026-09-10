@@ -41,6 +41,11 @@ export async function PATCH(request: Request, context: Context) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    const previousResult = await client.query(
+      `SELECT * FROM app_live.${entity} WHERE id=$1::uuid AND company_id=$2::uuid`,
+      [id,scope.companyId],
+    );
+    const previous = previousResult.rowCount ? mapRegistryRecord(entity, previousResult.rows[0]) : null;
     let updated;
     if (entity === "customers") {
       updated = await client.query(
@@ -99,8 +104,8 @@ export async function PATCH(request: Request, context: Context) {
     }
     const record = mapRegistryRecord(entity, updated.rows[0]);
     await client.query(
-      `INSERT INTO app_live.audit_log (entity_type, entity_id, action, details) VALUES ($1, $2::uuid, 'updated', $3::jsonb)`,
-      [entity, id, JSON.stringify(record)],
+      `INSERT INTO app_live.audit_log (entity_type, entity_id, action, actor_id, details) VALUES ($1, $2::uuid, 'updated', $3::uuid, $4::jsonb)`,
+      [entity, id, scope.user?.id ?? null, JSON.stringify({ before: previous, after: record, companyId: scope.companyId })],
     );
     await client.query("COMMIT");
     return NextResponse.json(record);

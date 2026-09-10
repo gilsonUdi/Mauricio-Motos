@@ -92,8 +92,8 @@ export async function POST(request: Request) {
       [scope.companyId,`manual:${inserted.rows[0].id}`,movement === "ENTRADA" ? "RECEITA" : "DESPESA",inserted.rows[0].id,selectedCategory?.id??categoryResult.rows[0]?.id??null,date,description,amount],
     );
     await client.query(
-      `INSERT INTO app_live.audit_log (entity_type, entity_id, action, details) VALUES ('financial_transaction', $1::uuid, 'created', $2::jsonb)`,
-      [inserted.rows[0].id, JSON.stringify({ date, description, movement, category, amount })],
+      `INSERT INTO app_live.audit_log (entity_type, entity_id, action, actor_id, details) VALUES ('financial_transaction', $1::uuid, 'created', $2::uuid, $3::jsonb)`,
+      [inserted.rows[0].id, scope.user?.id ?? null, JSON.stringify({ date, description, movement, category, amount, companyId: scope.companyId })],
     );
     await client.query("COMMIT");
     return NextResponse.json({ id: inserted.rows[0].id }, { status: 201 });

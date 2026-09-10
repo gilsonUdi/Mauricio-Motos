@@ -18,6 +18,11 @@ export async function POST(request: Request) {
     const row = found.rows[0]; const permissions = (row.permissions as string[]).filter((item): item is Permission => permissionIds.includes(item as Permission));
     const token = createSessionToken({ id: row.id, name: row.name, email: row.email, role: row.role, permissions, companyId: row.company_id, companyName: row.company_name });
     await pool.query(`UPDATE app_live.app_users SET last_login_at=now(),updated_at=now() WHERE id=$1::uuid`, [row.id]);
+    if (row.company_id) await pool.query(
+      `INSERT INTO app_live.audit_log(entity_type,entity_id,action,actor_id,company_id,details)
+       VALUES('app_user',$1::uuid,'login',$1::uuid,$2::uuid,jsonb_build_object('email',$3::text,'companyId',$2::text))`,
+      [row.id,row.company_id,email],
+    );
     const response = NextResponse.json({ ok: true });
     response.cookies.set(sessionCookie, token, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: 12 * 60 * 60 });
     return response;

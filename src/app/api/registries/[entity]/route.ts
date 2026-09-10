@@ -122,8 +122,8 @@ export async function POST(request: Request, context: Context) {
 
     const record = mapRegistryRecord(entity, inserted.rows[0]);
     await client.query(
-      `INSERT INTO app_live.audit_log (entity_type, entity_id, action, details) VALUES ($1, $2::uuid, 'created', $3::jsonb)`,
-      [entity, inserted.rows[0].id, JSON.stringify(record)],
+      `INSERT INTO app_live.audit_log (entity_type, entity_id, action, actor_id, details) VALUES ($1, $2::uuid, 'created', $3::uuid, $4::jsonb)`,
+      [entity, inserted.rows[0].id, scope.user?.id ?? null, JSON.stringify({ ...record, companyId: scope.companyId })],
     );
     await client.query("COMMIT");
     return NextResponse.json(record, { status: 201 });
