@@ -17,6 +17,7 @@ Aplicação web para substituir gradualmente o AppSheet da oficina, preservando 
 - histórico de contatos comerciais e agenda de próximos retornos por orçamento;
 - auditoria pesquisável por empresa, período, módulo, ação e usuário;
 - detalhes protegidos das alterações e comparação de dados antes/depois.
+- conferência de integridade entre vendas, compras, estoque, CMV, contas e movimentos de caixa, sem correções automáticas.
 
 Sem `DATABASE_URL`, a aplicação abre em modo de demonstração. Em produção, use o host interno do PostgreSQL no Easypanel.
 
