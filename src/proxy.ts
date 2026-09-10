@@ -8,6 +8,7 @@ const rules: Array<[RegExp, Permission]> = [
   [/^\/receber/, "receber"], [/^\/conferencia/, "conferencia"],
   [/^\/api\/reconciliation/, "conferencia"],
   [/^\/api\/migration-reconciliation/, "conferencia"],
+  [/^\/api\/readiness/, "conferencia"],
   [/^\/pagar/, "pagar"], [/^\/api\/payables/, "pagar"],
   [/^\/drg/, "drg"], [/^\/api\/drg/, "drg"],
   [/^\/financeiro/, "financeiro"], [/^\/api\/finance(?:\/|$)/, "financeiro"],

@@ -19,6 +19,7 @@ Aplicação web para substituir gradualmente o AppSheet da oficina, preservando 
 - detalhes protegidos das alterações e comparação de dados antes/depois.
 - conferência de integridade entre vendas, compras, estoque, CMV, contas e movimentos de caixa, sem correções automáticas.
 - reconciliação da migração histórica entre `appsheet_raw`, `app_core` e `app_live`, com chaves faltantes, totais e cadastros incompletos.
+- central de prontidão por empresa, com diagnóstico automático e checklist auditável para backup, testes, treinamento e desligamento gradual do AppSheet.
 
 Sem `DATABASE_URL`, a aplicação abre em modo de demonstração. Em produção, use o host interno do PostgreSQL no Easypanel.
 
