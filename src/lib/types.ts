@@ -81,6 +81,9 @@ export type ProductLookup = {
   id: string;
   name: string;
   type?: string;
+  sku?: string;
+  barcode?: string;
+  stock?: number;
   salePrice: number;
 };
 

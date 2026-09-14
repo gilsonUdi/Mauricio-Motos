@@ -4,7 +4,9 @@ import { Bike, Building2, LoaderCircle, Menu, PackagePlus, Pencil, Plus, Save, S
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
+import { MoneyInput } from "@/components/money-input";
 import type { RegistryEntity } from "@/lib/registries";
+import { numberToMoneyInput, parseBrazilianNumber } from "@/lib/numbers";
 
 type RegistryRecord = { id: string; [key: string]: unknown };
 type CustomerOption = { id: string; name: string };
@@ -12,7 +14,7 @@ type SupplierOption = { id: string; name: string };
 type FieldDefinition = {
   key: string;
   label: string;
-  type?: "text" | "number" | "checkbox" | "customer" | "supplier" | "select" | "document" | "zip";
+  type?: "text" | "number" | "money" | "checkbox" | "customer" | "supplier" | "select" | "document" | "zip";
   required?: boolean;
   step?: string;
   placeholder?: string;
@@ -87,8 +89,8 @@ const configs: Record<RegistryEntity, {
       { key: "barcode", label: "Código de barras" },
       { key: "brand", label: "Marca" },
       { key: "supplierId", label: "Fornecedor principal", type: "supplier" },
-      { key: "costPrice", label: "Preço de custo", type: "number", step: "0.01" },
-      { key: "salePrice", label: "Preço de venda", type: "number", step: "0.01" },
+      { key: "costPrice", label: "Preço de custo", type: "money" },
+      { key: "salePrice", label: "Preço de venda", type: "money" },
       { key: "profitMargin", label: "Margem (%)", type: "number", step: "0.01", placeholder: "Calculada se ficar vazia" },
       { key: "stock", label: "Estoque atual", type: "number", step: "0.001" },
       { key: "minimumStock", label: "Estoque mínimo", type: "number", step: "0.001" },
@@ -164,7 +166,7 @@ function initialForm(entity: RegistryEntity, record?: RegistryRecord) {
   const result: Record<string, string | boolean> = {};
   for (const field of configs[entity].fields) {
     const value = record?.[field.key];
-    result[field.key] = field.type === "checkbox" ? (record ? Boolean(value) : true) : value === null || value === undefined ? (field.type === "select" ? field.options?.[0]?.value ?? "" : "") : String(value);
+    result[field.key] = field.type === "checkbox" ? (record ? Boolean(value) : true) : value === null || value === undefined ? (field.type === "select" ? field.options?.[0]?.value ?? "" : field.type === "money" ? "0,00" : "") : field.type === "money" ? numberToMoneyInput(value) : String(value);
   }
   return result;
 }
@@ -224,7 +226,7 @@ export function RegistryPage({ entity }: { entity: RegistryEntity }) {
       const response = await fetch(editing ? `/api/registries/${entity}/${editing.id}` : `/api/registries/${entity}`, {
         method: editing ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(Object.fromEntries(Object.entries(form).map(([key, value]) => [key, configs[entity].fields.find((field) => field.key === key)?.type === "money" ? parseBrazilianNumber(value) : value]))),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "Não foi possível salvar.");
@@ -298,6 +300,8 @@ export function RegistryPage({ entity }: { entity: RegistryEntity }) {
                 <label className="field span-2" key={field.key}><span>{field.label}</span><select value={String(form[field.key] ?? "")} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))}><option value="">Sem fornecedor vinculado</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></label>
               ) : field.type === "select" ? (
                 <label className="field" key={field.key}><span>{field.label}{field.required ? " *" : ""}</span><select required={field.required} value={String(form[field.key] ?? field.options?.[0]?.value ?? "")} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))}>{field.options?.map((option)=><option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
+              ) : field.type === "money" ? (
+                <label className="field" key={field.key}><span>{field.label}{field.required ? " *" : ""}</span><MoneyInput required={field.required} value={String(form[field.key] ?? "")} onValueChange={(value) => setForm((current) => ({ ...current, [field.key]: value }))} /></label>
               ) : field.type === "document" || field.type === "zip" ? (
                 <label className="field lookup-field" key={field.key}><span>{field.label}{field.required ? " *" : ""}</span><div><input inputMode="numeric" required={field.required} value={String(form[field.key] ?? "")} placeholder={field.type==="zip"?"00000-000":"Somente números"} onChange={(event)=>setForm(current=>({...current,[field.key]:event.target.value}))}/><button type="button" onClick={()=>void lookup(field.type==="zip"?"cep":"cnpj")} disabled={lookupLoading!==undefined||(field.type==="zip"?String(form[field.key]??"").replace(/\D/g,"").length!==8:String(form[field.key]??"").replace(/\D/g,"").length!==14)}>{lookupLoading===(field.type==="zip"?"cep":"cnpj")?<LoaderCircle className="spin" size={15}/>:<Search size={15}/>} {field.type==="zip"?"Buscar CEP":"Buscar CNPJ"}</button></div></label>
               ) : (

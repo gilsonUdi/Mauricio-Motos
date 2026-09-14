@@ -3,6 +3,8 @@
 import { Bike, CirclePlus, LoaderCircle, PackagePlus, Save, Trash2, UserRound, X } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { OrderLookups, ProductLookup, WorkOrder } from "@/lib/types";
+import { MoneyInput } from "@/components/money-input";
+import { numberToMoneyInput, parseBrazilianNumber } from "@/lib/numbers";
 
 type DraftItem = {
   key: number;
@@ -32,7 +34,7 @@ const addDays = (value: string, days: number) => {
 const normalize = (value: string) => value.trim().toLocaleLowerCase("pt-BR");
 
 function blankItem(key: number): DraftItem {
-  return { key, name: "", type: "Produto", quantity: "1", unitPrice: "0" };
+  return { key, name: "", type: "Produto", quantity: "1", unitPrice: "0,00" };
 }
 
 export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
@@ -51,7 +53,7 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
   const [mechanicId, setMechanicId] = useState(initialOrder?.mechanicId ?? "");
   const [budgetDate, setBudgetDate] = useState(initialOrder?.budgetDate ?? today);
   const [validUntil, setValidUntil] = useState(initialOrder?.validUntil ?? addDays(initialOrder?.budgetDate ?? today(), 7));
-  const [discount, setDiscount] = useState(String(initialOrder?.discount ?? 0));
+  const [discount, setDiscount] = useState(numberToMoneyInput(initialOrder?.discount ?? 0));
   const [notes, setNotes] = useState(initialOrder?.notes ?? "");
   const [items, setItems] = useState<DraftItem[]>(initialOrder?.items.length ? initialOrder.items.map((item, index) => ({
     key: index + 1,
@@ -59,9 +61,10 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
     name: item.name,
     type: item.type || "Produto/Serviço",
     quantity: String(item.quantity),
-    unitPrice: String(item.unitPrice),
+    unitPrice: numberToMoneyInput(item.unitPrice),
   })) : [blankItem(1)]);
   const [nextKey, setNextKey] = useState((initialOrder?.items.length ?? 1) + 1);
+  const [activeProductSearch, setActiveProductSearch] = useState<number>();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -100,9 +103,9 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
   }, [customerId, lookups]);
 
   const subtotal = useMemo(() => items.reduce((sum, item) => (
-    sum + (Number(item.quantity.replace(",", ".")) || 0) * (Number(item.unitPrice.replace(",", ".")) || 0)
+    sum + (Number(item.quantity.replace(",", ".")) || 0) * parseBrazilianNumber(item.unitPrice)
   ), 0), [items]);
-  const total = Math.max(0, subtotal - (Number(discount.replace(",", ".")) || 0));
+  const total = Math.max(0, subtotal - parseBrazilianNumber(discount));
 
   function chooseCustomer(value: string) {
     setCustomerName(value);
@@ -128,14 +131,29 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
     setItems((current) => current.map((item) => item.key === key ? { ...item, ...patch } : item));
   }
 
-  function chooseProduct(item: DraftItem, value: string) {
-    const product = lookups?.products.find((entry) => normalize(entry.name) === normalize(value));
+  function searchProducts(value: string) {
+    const term = normalize(value);
+    return (lookups?.products ?? []).filter((product) =>
+      !term || normalize(`${product.name} ${product.sku ?? ""} ${product.barcode ?? ""}`).includes(term)
+    ).slice(0, 10);
+  }
+
+  function typeProductSearch(item: DraftItem, value: string) {
     updateItem(item.key, {
       name: value,
-      productId: product?.id,
-      type: product?.type ?? item.type,
-      unitPrice: product ? String(product.salePrice) : item.unitPrice,
+      productId: undefined,
     });
+    setActiveProductSearch(item.key);
+  }
+
+  function chooseProduct(item: DraftItem, product: ProductLookup) {
+    updateItem(item.key, {
+      name: product.name,
+      productId: product.id,
+      type: product.type ?? item.type,
+      unitPrice: numberToMoneyInput(product.salePrice),
+    });
+    setActiveProductSearch(undefined);
   }
 
   function addItem() {
@@ -147,7 +165,7 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
     event.preventDefault();
     setError("");
     if (!customerName.trim()) return setError("Informe o cliente.");
-    if (items.some((item) => !item.name.trim())) return setError("Preencha a descrição de todos os itens.");
+    if (items.some((item) => !item.productId)) return setError("Selecione um produto ou serviço cadastrado em todos os itens.");
 
     setSaving(true);
     try {
@@ -166,14 +184,14 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
           mechanicId: mechanicId || undefined,
           budgetDate,
           validUntil,
-          discount: Number(discount.replace(",", ".")) || 0,
+          discount: parseBrazilianNumber(discount),
           notes,
           items: items.map((item) => ({
             productId: item.productId,
             name: item.name,
             type: item.type,
             quantity: Number(item.quantity.replace(",", ".")) || 1,
-            unitPrice: Number(item.unitPrice.replace(",", ".")) || 0,
+            unitPrice: parseBrazilianNumber(item.unitPrice),
           })),
         }),
       });
@@ -224,10 +242,19 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
               <div className="editor-head"><span>Descrição</span><span>Tipo</span><span>Qtd.</span><span>Valor unit.</span><span></span></div>
               {items.map((item) => (
                 <div className="editor-row" key={item.key}>
-                  <input list="product-options" value={item.name} onChange={(event) => chooseProduct(item, event.target.value)} placeholder="Busque ou digite um item" required />
+                  <div className="product-picker">
+                    <input value={item.name} onFocus={() => setActiveProductSearch(item.key)} onChange={(event) => typeProductSearch(item, event.target.value)} onBlur={() => window.setTimeout(() => setActiveProductSearch((current) => current === item.key ? undefined : current), 150)} placeholder="Buscar por nome, SKU ou código" autoComplete="off" required />
+                    {activeProductSearch === item.key && <div className="product-search-results">
+                      {searchProducts(item.name).map((product) => <button type="button" key={product.id} onMouseDown={(event) => event.preventDefault()} onClick={() => chooseProduct(item, product)}>
+                        <span><strong>{product.name}</strong><small>{[product.type, product.sku ? `SKU ${product.sku}` : "", product.stock === undefined ? "" : `Estoque ${product.stock.toLocaleString("pt-BR")}`].filter(Boolean).join(" · ")}</small></span>
+                        <b>{currency.format(product.salePrice)}</b>
+                      </button>)}
+                      {!searchProducts(item.name).length && <p>Nenhum item cadastrado encontrado.</p>}
+                    </div>}
+                  </div>
                   <select value={item.type} onChange={(event) => updateItem(item.key, { type: event.target.value })}><option>Produto</option><option>Serviço</option><option>Produto/Serviço</option></select>
                   <input type="number" min="0.001" step="0.001" value={item.quantity} onChange={(event) => updateItem(item.key, { quantity: event.target.value })} aria-label="Quantidade" />
-                  <input type="number" min="0" step="0.01" value={item.unitPrice} onChange={(event) => updateItem(item.key, { unitPrice: event.target.value })} aria-label="Valor unitário" />
+                  <MoneyInput value={item.unitPrice} onValueChange={(value) => updateItem(item.key, { unitPrice: value })} aria-label="Valor unitário" required />
                   <button type="button" className="remove-item" onClick={() => setItems((current) => current.filter((entry) => entry.key !== item.key))} disabled={items.length === 1} aria-label="Remover item"><Trash2 size={18} /></button>
                 </div>
               ))}
@@ -237,7 +264,7 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
             <div className="form-footer-grid">
               <label className="field notes-field"><span>Observações</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} placeholder="Informações importantes para o atendimento" /></label>
               <div className="budget-summary">
-                <label className="field"><span>Desconto</span><input type="number" min="0" step="0.01" value={discount} onChange={(event) => setDiscount(event.target.value)} /></label>
+                <label className="field"><span>Desconto</span><MoneyInput value={discount} onValueChange={setDiscount} /></label>
                 <p><span>Subtotal</span><b>{currency.format(subtotal)}</b></p>
                 <p className="grand-total"><span>Total</span><strong>{currency.format(total)}</strong></p>
               </div>
@@ -249,7 +276,6 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
         )}
 
         <datalist id="customer-options">{lookups?.customers.map((customer) => <option key={customer.id} value={customer.name} />)}</datalist>
-        <datalist id="product-options">{lookups?.products.map((product: ProductLookup) => <option key={product.id} value={product.name}>{currency.format(product.salePrice)}</option>)}</datalist>
       </section>
     </div>
   );

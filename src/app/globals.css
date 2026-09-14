@@ -159,6 +159,15 @@ h3 { font-size: 20px; }
 .editor-head, .editor-row { display: grid; grid-template-columns: minmax(220px, 2fr) minmax(130px, .8fr) 85px 130px 42px; gap: 9px; align-items: center; }
 .editor-head { margin-bottom: 7px; padding: 0 3px; color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
 .editor-row + .editor-row { margin-top: 9px; }
+.product-picker { position: relative; min-width: 0; }
+.product-search-results { position: absolute; z-index: 30; top: calc(100% + 5px); left: 0; right: 0; max-height: 300px; overflow-y: auto; padding: 5px; border: 1px solid var(--line); border-radius: 12px; background: white; box-shadow: 0 14px 35px #261d1329; }
+.product-search-results button { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
+.product-search-results button:hover, .product-search-results button:focus { background: #f8f1e5; outline: 0; }
+.product-search-results button span { display: grid; gap: 2px; min-width: 0; }
+.product-search-results button strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.product-search-results button small { color: var(--muted); }
+.product-search-results button > b { flex: none; color: var(--amber-dark); }
+.product-search-results > p { margin: 0; padding: 12px; color: var(--muted); font-size: .86rem; }
 .remove-item { width: 40px; height: 40px; display: grid; place-items: center; border: 0; border-radius: 10px; color: var(--red); background: #f7e5e3; }
 .add-item { margin-top: 12px; padding: 9px 12px; display: inline-flex; align-items: center; gap: 7px; border: 1px dashed #bd8731; border-radius: 10px; color: #765015; background: var(--amber-soft); font-weight: 700; }
 .form-footer-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; }
@@ -369,7 +378,7 @@ h3 { font-size: 20px; }
   .form-grid.three-columns, .form-grid.four-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .editor-head { display: none; }
   .editor-row { grid-template-columns: minmax(0, 1fr) 90px 42px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: #f8f5ee; }
-  .editor-row input:first-child, .editor-row select { grid-column: span 2; }
+  .editor-row .product-picker, .editor-row select { grid-column: span 2; }
   .editor-row .remove-item { grid-column: 3; grid-row: 1; }
   .form-footer-grid { grid-template-columns: 1fr; }
   .registry-topbar { align-items: flex-start; }

@@ -15,6 +15,8 @@ import {
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
+import { MoneyInput } from "@/components/money-input";
+import { numberToMoneyInput, parseBrazilianNumber } from "@/lib/numbers";
 
 type Status = "PENDENTE" | "VENCIDO" | "PAGO" | "CANCELADO";
 type Receivable = {
@@ -193,7 +195,7 @@ export function ReceivablesPage({
     const order = data.orders.find((item) => item.id === value);
     if (order) {
       setCustomerId(order.customerId);
-      setAmount(String(order.total));
+      setAmount(numberToMoneyInput(order.total));
     }
   }
 
@@ -209,7 +211,7 @@ export function ReceivablesPage({
           workOrderId: orderId || null,
           customerId: customerId || null,
           dueDate,
-          amount: Number(amount.replace(",", ".")),
+          amount: parseBrazilianNumber(amount),
           notes,
         }),
       });
@@ -550,14 +552,7 @@ export function ReceivablesPage({
                 </label>
                 <label className="field">
                   <span>Valor *</span>
-                  <input
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    value={amount}
-                    onChange={(event) => setAmount(event.target.value)}
-                    required
-                  />
+                  <MoneyInput value={amount} onValueChange={setAmount} required />
                 </label>
                 <label className="field span-2">
                   <span>Observações</span>

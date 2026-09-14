@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getPool } from "@/lib/db";
 import type { OrderStatus, WorkOrder } from "@/lib/types";
 import { getTenantScope } from "@/lib/auth";
+import { parseBrazilianNumber } from "@/lib/numbers";
 
 type ItemInput = { productId?: string; name?: string; type?: string; quantity?: number; unitPrice?: number };
 type OrderInput = {
@@ -24,7 +25,7 @@ type OrderInput = {
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const clean = (value?: string) => value?.trim() || undefined;
 const validUuid = (value?: string) => value && uuidPattern.test(value) ? value : undefined;
-const money = (value: unknown) => Math.round(Math.max(0, Number(value) || 0) * 100) / 100;
+const money = (value: unknown) => Math.round(Math.max(0, parseBrazilianNumber(value)) * 100) / 100;
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const pool = getPool();
@@ -114,6 +115,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const preparedItems: Array<{ productId?: string; name: string; type: string; quantity: number; unitPrice: number }> = [];
     for (const item of body.items) {
       const productId = validUuid(item.productId);
+      if (!productId) throw new Error("PRODUCT_REQUIRED");
       const quantity = Math.max(0.001, Number(item.quantity) || 1);
       let name = clean(item.name);
       let type = clean(item.type) ?? "Produto/Serviço";
@@ -199,6 +201,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       VEHICLE_NOT_FOUND: { message: "Veículo não encontrado.", status: 400 },
       MECHANIC_NOT_FOUND: { message: "Mecânico não encontrado.", status: 400 },
       PRODUCT_NOT_FOUND: { message: "Produto ou serviço não encontrado.", status: 400 },
+      PRODUCT_REQUIRED: { message: "Selecione somente produtos ou serviços previamente cadastrados.", status: 400 },
       ITEM_NAME_REQUIRED: { message: "Preencha a descrição de todos os itens.", status: 400 },
       INVALID_VALIDITY: { message: "A validade não pode ser anterior à data do orçamento.", status: 400 },
     };

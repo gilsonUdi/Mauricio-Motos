@@ -3,6 +3,8 @@
 import { CheckCircle2, LoaderCircle, WalletCards, X } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { SaleFinancialConfig, WorkOrder } from "@/lib/types";
+import { MoneyInput } from "@/components/money-input";
+import { parseBrazilianNumber } from "@/lib/numbers";
 
 type Account = { id: string; name: string };
 type FeeRule = {
@@ -43,7 +45,7 @@ export function SaleFinanceModal({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [entry, setEntry] = useState("0");
+  const [entry, setEntry] = useState("0,00");
   const [installments, setInstallments] = useState(1);
   const [firstDueDate, setFirstDueDate] = useState(today);
   const [methodId, setMethodId] = useState("");
@@ -72,7 +74,7 @@ export function SaleFinanceModal({
   }, []);
 
   const method = options.methods.find((item) => item.id === methodId);
-  const entryAmount = Math.max(0, Number(entry.replace(",", ".")) || 0);
+  const entryAmount = Math.max(0, parseBrazilianNumber(entry));
   const balance = Math.max(0, order.total - entryAmount);
   const feePercent = useMemo(() => {
     if (!method) return 0;
@@ -151,14 +153,7 @@ export function SaleFinanceModal({
             <div className="form-grid registry-form-grid">
               <label className="field">
                 <span>Entrada</span>
-                <input
-                  type="number"
-                  min="0"
-                  max={order.total}
-                  step="0.01"
-                  value={entry}
-                  onChange={(event) => setEntry(event.target.value)}
-                />
+                <MoneyInput value={entry} onValueChange={setEntry} />
               </label>
               <label className="field">
                 <span>Saldo a parcelar</span>

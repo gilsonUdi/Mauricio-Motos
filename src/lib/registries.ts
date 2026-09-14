@@ -1,3 +1,5 @@
+import { parseBrazilianNumber } from "@/lib/numbers";
+
 export type RegistryEntity = "customers" | "vehicles" | "products" | "mechanics" | "suppliers";
 
 export const registryEntities = new Set<RegistryEntity>(["customers", "vehicles", "products", "mechanics", "suppliers"]);
@@ -77,7 +79,7 @@ export function mapRegistryRecord(entity: RegistryEntity, row: Record<string, un
 
 export const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const cleanText = (value: unknown) => typeof value === "string" ? value.trim() || null : null;
-export const numberValue = (value: unknown, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
+export const numberValue = (value: unknown, fallback = 0) => parseBrazilianNumber(value, fallback);
 export const booleanValue = (value: unknown, fallback = true) => typeof value === "boolean" ? value : fallback;
 
 export function normalizeDocument(value: unknown) {
