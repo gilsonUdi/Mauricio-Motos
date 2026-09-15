@@ -22,18 +22,74 @@ const checks: Check[] = [
   {
     code: "SALE_RECEIVABLE_TOTAL", module: "VENDAS", severity: "CRITICO", title: "Venda e contas a receber divergentes",
     query: `SELECT o.id::text AS reference_id,concat('Venda ',o.order_number,' · ',o.customer_name) AS reference,
-      'O total das parcelas não corresponde ao valor da venda.' AS description,o.total_value AS expected,COALESCE(SUM(r.original_amount) FILTER (WHERE r.status<>'CANCELADO'),0) AS actual
+      'O total das parcelas não corresponde ao valor efetivamente cobrado do cliente.' AS description,COALESCE(o.charged_total,o.total_value) AS expected,COALESCE(SUM(r.original_amount) FILTER (WHERE r.status<>'CANCELADO'),0) AS actual
       FROM app_live.work_orders o LEFT JOIN app_live.receivables r ON r.work_order_id=o.id AND r.company_id=o.company_id
       WHERE o.company_id=$1::uuid AND o.status='VENDA_REALIZADA' AND o.financial_generated_at IS NOT NULL
-      GROUP BY o.id HAVING ABS(o.total_value-COALESCE(SUM(r.original_amount) FILTER (WHERE r.status<>'CANCELADO'),0))>0.01`,
+      GROUP BY o.id HAVING ABS(COALESCE(o.charged_total,o.total_value)-COALESCE(SUM(r.original_amount) FILTER (WHERE r.status<>'CANCELADO'),0))>0.01`,
+  },
+  {
+    code: "SALE_INSTALLMENTS", module: "FINANCEIRO", severity: "CRITICO", title: "Quantidade de parcelas divergente",
+    query: `WITH expected AS (
+      SELECT o.id,o.order_number,o.customer_name,
+        (CASE WHEN COALESCE(o.entry_amount,0)>0 THEN 1 ELSE 0 END +
+         CASE WHEN COALESCE(o.charged_total,o.total_value)-
+           CASE WHEN COALESCE(o.entry_amount,0)>0 AND o.customer_assumes_payment_fee AND o.payment_fee_percent>0
+             THEN o.entry_amount/(1-o.payment_fee_percent/100.0) ELSE COALESCE(o.entry_amount,0) END>0.01
+           THEN o.installment_count ELSE 0 END) AS expected_count
+      FROM app_live.work_orders o
+      WHERE o.company_id=$1::uuid AND o.status='VENDA_REALIZADA' AND o.financial_generated_at IS NOT NULL)
+      SELECT x.id::text AS reference_id,concat('Venda ',x.order_number,' · ',x.customer_name) AS reference,
+        'A quantidade de obrigações geradas não corresponde à entrada e ao parcelamento definidos no fechamento.' AS description,
+        x.expected_count AS expected,COUNT(r.id) FILTER (WHERE r.status<>'CANCELADO') AS actual
+      FROM expected x LEFT JOIN app_live.receivables r ON r.work_order_id=x.id
+      GROUP BY x.id,x.order_number,x.customer_name,x.expected_count
+      HAVING x.expected_count<>COUNT(r.id) FILTER (WHERE r.status<>'CANCELADO')`,
+  },
+  {
+    code: "SALE_RECEIVABLE_FEES", module: "FINANCEIRO", severity: "CRITICO", title: "Taxas das parcelas divergentes",
+    query: `SELECT o.id::text AS reference_id,concat('Venda ',o.order_number,' · ',o.customer_name) AS reference,
+      'A soma das taxas distribuídas nas parcelas não corresponde à taxa calculada no fechamento.' AS description,
+      COALESCE(o.payment_fee_amount,0) AS expected,COALESCE(SUM(r.fee_amount) FILTER (WHERE r.status<>'CANCELADO'),0) AS actual
+      FROM app_live.work_orders o LEFT JOIN app_live.receivables r ON r.work_order_id=o.id AND r.company_id=o.company_id
+      WHERE o.company_id=$1::uuid AND o.status='VENDA_REALIZADA' AND o.financial_generated_at IS NOT NULL
+      GROUP BY o.id HAVING ABS(COALESCE(o.payment_fee_amount,0)-COALESCE(SUM(r.fee_amount) FILTER (WHERE r.status<>'CANCELADO'),0))>0.05`,
+  },
+  {
+    code: "SALE_RECEIVABLE_NET", module: "FINANCEIRO", severity: "CRITICO", title: "Valor líquido das parcelas divergente",
+    query: `SELECT o.id::text AS reference_id,concat('Venda ',o.order_number,' · ',o.customer_name) AS reference,
+      'O valor líquido previsto nas parcelas não corresponde ao valor cobrado menos as taxas.' AS description,
+      COALESCE(o.charged_total,o.total_value)-COALESCE(o.payment_fee_amount,0) AS expected,
+      COALESCE(SUM(COALESCE(r.net_amount,r.original_amount-r.fee_amount)) FILTER (WHERE r.status<>'CANCELADO'),0) AS actual
+      FROM app_live.work_orders o LEFT JOIN app_live.receivables r ON r.work_order_id=o.id AND r.company_id=o.company_id
+      WHERE o.company_id=$1::uuid AND o.status='VENDA_REALIZADA' AND o.financial_generated_at IS NOT NULL
+      GROUP BY o.id HAVING ABS((COALESCE(o.charged_total,o.total_value)-COALESCE(o.payment_fee_amount,0))-COALESCE(SUM(COALESCE(r.net_amount,r.original_amount-r.fee_amount)) FILTER (WHERE r.status<>'CANCELADO'),0))>0.05`,
+  },
+  {
+    code: "CUSTOMER_ASSUMED_FEE", module: "VENDAS", severity: "CRITICO", title: "Repasse da taxa ao cliente divergente",
+    query: `SELECT o.id::text AS reference_id,concat('Venda ',o.order_number,' · ',o.customer_name) AS reference,
+      'O valor líquido da venda com taxa assumida pelo cliente deveria preservar o total dos produtos e serviços.' AS description,
+      o.total_value AS expected,COALESCE(o.charged_total,o.total_value)-COALESCE(o.payment_fee_amount,0) AS actual
+      FROM app_live.work_orders o WHERE o.company_id=$1::uuid AND o.status='VENDA_REALIZADA' AND o.financial_generated_at IS NOT NULL
+      AND o.customer_assumes_payment_fee AND ABS(o.total_value-(COALESCE(o.charged_total,o.total_value)-COALESCE(o.payment_fee_amount,0)))>0.02`,
   },
   {
     code: "SALE_REVENUE_EVENT", module: "FINANCEIRO", severity: "CRITICO", title: "Receita da venda ausente ou divergente",
     query: `SELECT o.id::text AS reference_id,concat('Venda ',o.order_number,' · ',o.customer_name) AS reference,
-      'O evento de receita usado no DRG não corresponde à venda.' AS description,o.total_value AS expected,COALESCE(MAX(e.amount),0) AS actual
+      'O evento de receita usado no DRG não corresponde ao valor cobrado na venda.' AS description,COALESCE(o.charged_total,o.total_value) AS expected,COALESCE(MAX(e.amount),0) AS actual
       FROM app_live.work_orders o LEFT JOIN app_live.financial_events e ON e.company_id=o.company_id AND e.source_type='WORK_ORDER' AND e.source_id=o.id AND e.event_type='RECEITA_VENDA' AND e.reversed_at IS NULL
       WHERE o.company_id=$1::uuid AND o.status='VENDA_REALIZADA' AND o.financial_generated_at IS NOT NULL
-      GROUP BY o.id HAVING ABS(o.total_value-COALESCE(MAX(e.amount),0))>0.01`,
+      GROUP BY o.id HAVING ABS(COALESCE(o.charged_total,o.total_value)-COALESCE(MAX(e.amount),0))>0.01`,
+  },
+  {
+    code: "SALE_FEE_EVENT", module: "FINANCEIRO", severity: "CRITICO", title: "Despesa de taxa ausente ou divergente",
+    query: `SELECT o.id::text AS reference_id,concat('Venda ',o.order_number,' · ',o.customer_name) AS reference,
+      'A despesa de taxa da maquininha no DRG está ausente, divergente ou classificada incorretamente.' AS description,
+      COALESCE(o.payment_fee_amount,0) AS expected,COALESCE(MAX(e.amount),0) AS actual
+      FROM app_live.work_orders o LEFT JOIN app_live.financial_events e
+        ON e.company_id=o.company_id AND e.source_type='WORK_ORDER' AND e.source_id=o.id AND e.event_key=concat('sale:',o.id,':payment-fee') AND e.reversed_at IS NULL
+        AND EXISTS (SELECT 1 FROM app_live.financial_categories c WHERE c.id=e.category_id AND c.company_id=o.company_id AND c.system_code='PAYMENT_FEES')
+      WHERE o.company_id=$1::uuid AND o.status='VENDA_REALIZADA' AND o.financial_generated_at IS NOT NULL
+      GROUP BY o.id HAVING ABS(COALESCE(o.payment_fee_amount,0)-COALESCE(MAX(e.amount),0))>0.01`,
   },
   {
     code: "SALE_COGS_EVENT", module: "FINANCEIRO", severity: "CRITICO", title: "CMV da venda ausente ou divergente",
@@ -93,8 +149,24 @@ const checks: Check[] = [
       WHERE pp.company_id=$1::uuid AND pp.reversed_at IS NULL GROUP BY pp.id,a.description HAVING ABS((pp.amount+pp.interest_amount+pp.fine_amount-pp.discount_amount)-COALESCE(MAX(ft.amount),0))>0.01`,
   },
   {
-    code: "NEGATIVE_STOCK", module: "ESTOQUE", severity: "CRITICO", title: "Produto com estoque negativo",
-    query: `SELECT p.id::text AS reference_id,p.name AS reference,'O saldo atual está abaixo de zero.' AS description,0 AS expected,p.current_stock AS actual FROM app_live.products p WHERE p.company_id=$1::uuid AND p.current_stock<0 ORDER BY p.current_stock`,
+    code: "UNAUTHORIZED_NEGATIVE_STOCK", module: "ESTOQUE", severity: "CRITICO", title: "Estoque negativo sem autorização vinculada",
+    query: `SELECT p.id::text AS reference_id,p.name AS reference,
+      'O saldo atual está abaixo de zero e não foi localizada uma venda concluída com autorização explícita para este produto.' AS description,
+      0 AS expected,p.current_stock AS actual FROM app_live.products p
+      WHERE p.company_id=$1::uuid AND p.current_stock<0 AND NOT EXISTS (
+        SELECT 1 FROM app_live.work_orders o CROSS JOIN LATERAL jsonb_array_elements(COALESCE(o.stock_override_snapshot,'[]'::jsonb)) item
+        WHERE o.company_id=p.company_id AND o.status='VENDA_REALIZADA' AND o.stock_override_used AND item->>'productId'=p.id::text)
+      ORDER BY p.current_stock`,
+  },
+  {
+    code: "AUTHORIZED_NEGATIVE_STOCK", module: "ESTOQUE", severity: "ALERTA", title: "Venda autorizada aguardando reposição",
+    query: `SELECT p.id::text AS reference_id,p.name AS reference,
+      'O produto continua negativo após uma venda autorizada sem estoque e permanecerá sinalizado até a reposição.' AS description,
+      0 AS expected,p.current_stock AS actual FROM app_live.products p
+      WHERE p.company_id=$1::uuid AND p.current_stock<0 AND EXISTS (
+        SELECT 1 FROM app_live.work_orders o CROSS JOIN LATERAL jsonb_array_elements(COALESCE(o.stock_override_snapshot,'[]'::jsonb)) item
+        WHERE o.company_id=p.company_id AND o.status='VENDA_REALIZADA' AND o.stock_override_used AND item->>'productId'=p.id::text)
+      ORDER BY p.current_stock`,
   },
 ];
 
