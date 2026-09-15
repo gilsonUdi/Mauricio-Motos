@@ -10,6 +10,9 @@ ALTER TABLE app_live.work_orders ADD COLUMN IF NOT EXISTS payment_fee_percent nu
 ALTER TABLE app_live.work_orders ADD COLUMN IF NOT EXISTS payment_fee_amount numeric(14,2) NOT NULL DEFAULT 0;
 ALTER TABLE app_live.work_orders ADD COLUMN IF NOT EXISTS customer_assumes_payment_fee boolean NOT NULL DEFAULT false;
 ALTER TABLE app_live.work_orders ADD COLUMN IF NOT EXISTS charged_total numeric(14,2);
+ALTER TABLE app_live.work_orders ADD COLUMN IF NOT EXISTS stock_override_used boolean NOT NULL DEFAULT false;
+ALTER TABLE app_live.work_orders ADD COLUMN IF NOT EXISTS stock_override_at timestamptz;
+ALTER TABLE app_live.work_orders ADD COLUMN IF NOT EXISTS stock_override_snapshot jsonb NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE app_live.receivables ADD COLUMN IF NOT EXISTS payment_method_id uuid REFERENCES app_live.payment_methods(id) ON DELETE SET NULL;
 ALTER TABLE app_live.receivables ADD COLUMN IF NOT EXISTS financial_account_id uuid REFERENCES app_live.financial_accounts(id) ON DELETE SET NULL;
 ALTER TABLE app_live.receivables ADD COLUMN IF NOT EXISTS fee_percent numeric(8,4) NOT NULL DEFAULT 0;

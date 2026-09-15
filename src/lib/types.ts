@@ -10,6 +10,14 @@ export type OrderItem = {
   total: number;
 };
 
+export type StockShortage = {
+  productId: string;
+  name: string;
+  currentStock: number;
+  requiredQuantity: number;
+  resultingStock: number;
+};
+
 export type WorkOrder = {
   id: string;
   number: string;
@@ -40,6 +48,8 @@ export type WorkOrder = {
   nextFollowUpAt?: string;
   followUpCount?: number;
   notes?: string;
+  stockOverrideAt?: string;
+  stockWarningItems?: StockShortage[];
   items: OrderItem[];
 };
 
@@ -55,6 +65,7 @@ export type SaleFinancialConfig = {
   paymentMethodId: string;
   financialAccountId: string;
   customerAssumesFee: boolean;
+  allowNegativeStock?: boolean;
 };
 
 export type BudgetApprovalConfig = {

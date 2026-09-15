@@ -48,6 +48,8 @@ O demonstrativo `/drg` consolida receita bruta, descontos, impostos, receita lí
 
 O estoque calcula giro apenas a partir de vendas concluídas, cobertura em dias, ruptura e risco de ruptura usando estoque mínimo e prazo de reposição. O painel também mostra o valor atual a custo, o valor potencial de venda e a margem projetada do inventário.
 
+A migração `db/migrations/019_stock_override.sql` permite concluir uma venda com saldo insuficiente somente após confirmação explícita. A exceção e os itens envolvidos ficam registrados na auditoria, e a venda permanece sinalizada enquanto algum desses produtos continuar com estoque negativo.
+
 Os cadastros de clientes e fornecedores validam CPF/CNPJ no backend. A consulta de CEP usa o ViaCEP e a consulta cadastral de CNPJ usa a BrasilAPI, sempre pelo backend para manter o formulário independente dos provedores externos.
 
 A migração `db/migrations/018_tax_reform_products.sql` prepara o cadastro de produtos e serviços para armazenar CST e classificação tributária do IBS/CBS, alíquotas estadual e municipal do IBS, CBS, Imposto Seletivo, NBS e código de serviço. Esses campos são cadastrais e não executam cálculo tributário automático.

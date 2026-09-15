@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getPool } from "@/lib/db";
-import type { OrderStatus } from "@/lib/types";
+import type { OrderStatus, StockShortage } from "@/lib/types";
 import { getTenantScope } from "@/lib/auth";
 
 const validStatuses = new Set<OrderStatus>([
@@ -44,6 +44,7 @@ export async function PATCH(
     paymentMethodId?: string;
     financialAccountId?: string;
     customerAssumesFee?: boolean;
+    allowNegativeStock?: boolean;
     approvedByCustomer?: string;
     approvalMethod?: string;
     approvalNotes?: string;
@@ -53,6 +54,7 @@ export async function PATCH(
   }
 
   const client = await pool.connect();
+  const stockShortages: StockShortage[] = [];
   try {
     await client.query("BEGIN");
     const current = await client.query(
@@ -187,6 +189,7 @@ export async function PATCH(
          ORDER BY i.product_id`,
         [id],
       );
+      const stockChanges: Array<{productId:string;name:string;quantity:number;unitCost:number;newStock:number}> = [];
       for (const item of items.rows) {
         const product = await client.query(
           `SELECT COALESCE(current_stock,0) AS stock,COALESCE(cost_price,0) AS unit_cost
@@ -200,10 +203,22 @@ export async function PATCH(
         const newStock = enteringSale
           ? oldStock - quantity
           : oldStock + quantity;
-        if (newStock < 0) throw new Error(`INSUFFICIENT_STOCK:${item.name}`);
+        if (enteringSale && newStock < 0) stockShortages.push({
+          productId: item.product_id,
+          name: item.name,
+          currentStock: oldStock,
+          requiredQuantity: quantity,
+          resultingStock: newStock,
+        });
+        stockChanges.push({productId:item.product_id,name:item.name,quantity,unitCost,newStock});
+      }
+      if (enteringSale && stockShortages.length && body.allowNegativeStock !== true) {
+        throw new Error("INSUFFICIENT_STOCK");
+      }
+      for (const item of stockChanges) {
         await client.query(
           `UPDATE app_live.products SET current_stock = $2 WHERE id = $1::uuid`,
-          [item.product_id, newStock],
+          [item.productId, item.newStock],
         );
         await client.query(
           `INSERT INTO app_live.inventory_movements
@@ -211,13 +226,13 @@ export async function PATCH(
            VALUES ($1::uuid,$2::uuid,CURRENT_DATE,$3,$4,$5,$6,$7,$8,$9,$10,'WORK_ORDER',$11::uuid)`,
           [
             scope.companyId,
-            item.product_id,
+            item.productId,
             enteringSale ? "VENDA" : "ESTORNO_VENDA",
-            quantity,
+            item.quantity,
             current.rows[0].customer_name,
-            newStock,
-            unitCost,
-            Math.round(quantity * unitCost * 100) / 100,
+            item.newStock,
+            item.unitCost,
+            Math.round(item.quantity * item.unitCost * 100) / 100,
             enteringSale ? "VENDA_CONCLUIDA" : "ESTORNO_VENDA",
             enteringSale,
             id,
@@ -227,7 +242,7 @@ export async function PATCH(
           await client.query(
             `UPDATE app_live.work_order_items SET unit_cost_snapshot=$2, cost_value=$2
              WHERE work_order_id=$1::uuid AND product_id=$3::uuid`,
-            [id, unitCost, item.product_id],
+            [id, item.unitCost, item.productId],
           );
         }
       }
@@ -380,7 +395,8 @@ export async function PATCH(
     );
     if (enteringSale)
       await client.query(
-        `UPDATE app_live.work_orders SET entry_amount=$2,installment_count=$3,first_due_date=$4::date,payment_method_id=$5::uuid,financial_account_id=$6::uuid,payment_method=$7,payment_fee_percent=$8,payment_fee_amount=$9,customer_assumes_payment_fee=$10,charged_total=$11 WHERE id=$1::uuid`,
+        `UPDATE app_live.work_orders SET entry_amount=$2,installment_count=$3,first_due_date=$4::date,payment_method_id=$5::uuid,financial_account_id=$6::uuid,payment_method=$7,payment_fee_percent=$8,payment_fee_amount=$9,customer_assumes_payment_fee=$10,charged_total=$11,
+         stock_override_used=$12,stock_override_at=CASE WHEN $12 THEN now() ELSE NULL END,stock_override_snapshot=$13::jsonb WHERE id=$1::uuid`,
         [
           id,
           saleFinance!.entryAmount,
@@ -393,7 +409,14 @@ export async function PATCH(
           saleFinance!.feeAmount,
           saleFinance!.customerAssumesFee,
           saleFinance!.chargedTotal,
+          stockShortages.length > 0,
+          JSON.stringify(stockShortages),
         ],
+      );
+    if (leavingSale)
+      await client.query(
+        `UPDATE app_live.work_orders SET stock_override_used=false,stock_override_at=NULL,stock_override_snapshot='[]'::jsonb WHERE id=$1::uuid`,
+        [id],
       );
 
     if (!updated.rowCount) {
@@ -407,22 +430,29 @@ export async function PATCH(
     await client.query(
       `INSERT INTO app_live.audit_log (entity_type,entity_id,action,actor_id,details)
        VALUES ('work_order',$1::uuid,'status_changed',$2::uuid,jsonb_build_object(
-         'status',$3::text,'company_id',$4::text,'approved_by',$5::text,'approval_method',$6::text,'approval_notes',$7::text
+         'status',$3::text,'company_id',$4::text,'approved_by',$5::text,'approval_method',$6::text,'approval_notes',$7::text,
+         'stock_override',$8::boolean,'stock_shortages',$9::jsonb
        ))`,
-      [id,scope.user?.id ?? null,body.status,scope.companyId,enteringApproval ? approvedByCustomer : null,enteringApproval ? approvalMethod : null,enteringApproval ? approvalNotes : null],
+      [id,scope.user?.id ?? null,body.status,scope.companyId,enteringApproval ? approvedByCustomer : null,enteringApproval ? approvalMethod : null,enteringApproval ? approvalNotes : null,enteringSale&&stockShortages.length>0,JSON.stringify(enteringSale?stockShortages:[])],
     );
     await client.query("COMMIT");
-    return NextResponse.json(updated.rows[0]);
+    return NextResponse.json({
+      ...updated.rows[0],
+      stockOverrideAt: enteringSale && stockShortages.length ? new Date().toISOString() : undefined,
+      stockWarningItems: enteringSale ? stockShortages.map((item) => ({ ...item, currentStock: item.resultingStock })) : [],
+    });
   } catch (error) {
     await client.query("ROLLBACK");
     console.error(error);
     if (
       error instanceof Error &&
-      error.message.startsWith("INSUFFICIENT_STOCK:")
+      error.message === "INSUFFICIENT_STOCK"
     ) {
       return NextResponse.json(
         {
-          error: `Estoque insuficiente para ${error.message.slice("INSUFFICIENT_STOCK:".length)}.`,
+          code: "INSUFFICIENT_STOCK",
+          error: "Existem produtos sem estoque suficiente. Confirme explicitamente para concluir a venda mesmo assim.",
+          stockShortages,
         },
         { status: 409 },
       );

@@ -1,6 +1,6 @@
 import { fixtureOrders } from "./fixtures";
 import { getPool } from "./db";
-import type { DashboardData, OrderStatus, WorkOrder } from "./types";
+import type { DashboardData, OrderStatus, StockShortage, WorkOrder } from "./types";
 
 type OrderRow = {
   id: string;
@@ -32,6 +32,8 @@ type OrderRow = {
   next_follow_up_at: string | null;
   follow_up_count: number | null;
   notes: string | null;
+  stock_override_at: string | null;
+  stock_warning_items: StockShortage[] | null;
   items: Array<{ id: string; productId?: string; name: string; type: string; quantity: number; unitPrice: number; total: number }> | null;
 };
 
@@ -71,6 +73,19 @@ export async function getDashboardData(companyId: string): Promise<DashboardData
         o.next_follow_up_at,
         o.follow_up_count,
         o.notes,
+        o.stock_override_at,
+        CASE WHEN o.stock_override_used THEN COALESCE((
+          SELECT jsonb_agg(jsonb_build_object(
+            'productId', p.id::text,
+            'name', p.name,
+            'currentStock', p.current_stock,
+            'requiredQuantity', COALESCE((snapshot.item->>'requiredQuantity')::numeric,0),
+            'resultingStock', p.current_stock
+          ) ORDER BY p.name)
+          FROM jsonb_array_elements(o.stock_override_snapshot) AS snapshot(item)
+          JOIN app_live.products p ON p.id=(snapshot.item->>'productId')::uuid AND p.company_id=o.company_id
+          WHERE COALESCE(p.current_stock,0)<0
+        ),'[]'::jsonb) ELSE '[]'::jsonb END AS stock_warning_items,
         COALESCE(
           jsonb_agg(
             jsonb_build_object(
@@ -124,6 +139,8 @@ export async function getDashboardData(companyId: string): Promise<DashboardData
       nextFollowUpAt: row.next_follow_up_at ?? undefined,
       followUpCount: Number(row.follow_up_count ?? 0),
       notes: row.notes ?? undefined,
+      stockOverrideAt: row.stock_override_at ?? undefined,
+      stockWarningItems: row.stock_warning_items ?? [],
       items: row.items ?? [],
     }));
 

@@ -1,8 +1,8 @@
 "use client";
 
-import { CheckCircle2, LoaderCircle, WalletCards, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, LoaderCircle, WalletCards, X } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import type { SaleFinancialConfig, WorkOrder } from "@/lib/types";
+import type { SaleFinancialConfig, StockShortage, WorkOrder } from "@/lib/types";
 import { MoneyInput } from "@/components/money-input";
 import { parseBrazilianNumber } from "@/lib/numbers";
 
@@ -52,6 +52,8 @@ export function SaleFinanceModal({
   const [methodId, setMethodId] = useState("");
   const [accountId, setAccountId] = useState("");
   const [customerAssumesFee, setCustomerAssumesFee] = useState(false);
+  const [stockShortages, setStockShortages] = useState<StockShortage[]>([]);
+  const [negativeStockConfirmed, setNegativeStockConfirmed] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -119,6 +121,8 @@ export function SaleFinanceModal({
     event.preventDefault();
     if (entryAmount > order.total)
       return setError("A entrada não pode ser maior que o total da venda.");
+    if (stockShortages.length && !negativeStockConfirmed)
+      return setError("Confirme que deseja concluir a venda mesmo sem estoque suficiente.");
     setSaving(true);
     setError("");
     try {
@@ -129,8 +133,16 @@ export function SaleFinanceModal({
         paymentMethodId: methodId,
         financialAccountId: accountId,
         customerAssumesFee,
+        allowNegativeStock: stockShortages.length > 0 && negativeStockConfirmed,
       });
     } catch (caught) {
+      const shortages = caught instanceof Error && "stockShortages" in caught
+        ? (caught as Error & { stockShortages?: StockShortage[] }).stockShortages
+        : undefined;
+      if (shortages?.length) {
+        setStockShortages(shortages);
+        setNegativeStockConfirmed(false);
+      }
       setError(
         caught instanceof Error
           ? caught.message
@@ -251,6 +263,13 @@ export function SaleFinanceModal({
               </span>
             </div>
             {customerAssumesFee && feePercent > 0 && <p className="payment-callout fee-warning"><WalletCards/><span><b>Cobrar {money.format(chargeTotal)} do cliente.</b><br/>Após a taxa, a empresa recebe {money.format(order.total)} líquidos.</span></p>}
+            {stockShortages.length > 0 && (
+              <div className="stock-confirmation">
+                <div><AlertTriangle /><span><b>Estoque insuficiente</b><small>A venda deixará os itens abaixo com saldo negativo.</small></span></div>
+                <ul>{stockShortages.map((item) => <li key={item.productId}><strong>{item.name}</strong><span>Disponível: {item.currentStock.toLocaleString("pt-BR")} · venda: {item.requiredQuantity.toLocaleString("pt-BR")} · saldo: {item.resultingStock.toLocaleString("pt-BR")}</span></li>)}</ul>
+                <label className="checkbox-field"><input type="checkbox" checked={negativeStockConfirmed} onChange={(event) => { setNegativeStockConfirmed(event.target.checked); setError(""); }} /><span>Confirmo que desejo concluir esta venda sem estoque suficiente.</span></label>
+              </div>
+            )}
             {!options.methods.length && (
               <p className="form-error">
                 Cadastre uma forma de pagamento antes de concluir a venda.
@@ -281,7 +300,7 @@ export function SaleFinanceModal({
                 ) : (
                   <CheckCircle2 size={18} />
                 )}
-                Concluir e gerar parcelas
+                {stockShortages.length ? "Confirmar venda sem estoque" : "Concluir e gerar parcelas"}
               </button>
             </footer>
           </form>

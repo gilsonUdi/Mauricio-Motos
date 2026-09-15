@@ -2,6 +2,7 @@
 
 import {
   Bike,
+  AlertTriangle,
   CheckCircle2,
   ChevronRight,
   ClipboardList,
@@ -24,7 +25,7 @@ import { BudgetApprovalModal } from "@/components/budget-approval-modal";
 import { BudgetFollowUpModal } from "@/components/budget-follow-up-modal";
 import { OrderFormModal } from "@/components/order-form-modal";
 import { SaleFinanceModal } from "@/components/sale-finance-modal";
-import type { BudgetApprovalConfig, DashboardData, OrderStatus, SaleFinancialConfig, WorkOrder } from "@/lib/types";
+import type { BudgetApprovalConfig, DashboardData, OrderStatus, SaleFinancialConfig, StockShortage, WorkOrder } from "@/lib/types";
 
 const statusLabels: Record<OrderStatus, string> = {
   ORCAMENTO: "Orçamento",
@@ -123,11 +124,15 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       const message = payload?.error ?? "Não foi possível atualizar a ordem.";
-      if (financial || approval) throw new Error(message);
+      if (financial || approval) {
+        const requestError = new Error(message) as Error & { stockShortages?: StockShortage[] };
+        if (Array.isArray(payload?.stockShortages)) requestError.stockShortages = payload.stockShortages;
+        throw requestError;
+      }
       setNotice(message);
       return;
     }
-    setOrders((current) => current.map((order) => order.id === selected.id ? { ...order, status, approvedAt: payload.approvedAt, approvedByCustomer: payload.approvedByCustomer, approvalMethod: payload.approvalMethod, approvalNotes: payload.approvalNotes } : order));
+    setOrders((current) => current.map((order) => order.id === selected.id ? { ...order, status, approvedAt: payload.approvedAt, approvedByCustomer: payload.approvedByCustomer, approvalMethod: payload.approvalMethod, approvalNotes: payload.approvalNotes, stockOverrideAt: payload.stockOverrideAt, stockWarningItems: payload.stockWarningItems ?? [] } : order));
     if (status === "VENDA_REALIZADA") setClosingSale(null);
     if (status === "PEDIDO") setApprovingOrder(null);
     setNotice(`Ordem ${selected.number} atualizada para ${statusLabels[status].toLowerCase()}.`);
@@ -269,7 +274,7 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
             <div className="order-list">
               {filtered.map((order) => (
                 <button className={`order-card ${selected?.id === order.id ? "selected" : ""}`} key={order.id} onClick={() => setSelectedId(order.id)}>
-                  <div className="order-card-top"><span>#{order.number}{(order.revisionNumber ?? 1) > 1 ? ` · R${order.revisionNumber}` : ""}</span>{isExpired(order) ? <span className="status-badge budget-expired">Vencido</span> : isFollowUpDue(order) ? <span className="status-badge follow-up-due">Retorno pendente</span> : <StatusBadge status={order.status} />}</div>
+                  <div className="order-card-top"><span>#{order.number}{(order.revisionNumber ?? 1) > 1 ? ` · R${order.revisionNumber}` : ""}</span>{order.stockWarningItems?.length ? <span className="status-badge stock-pending">Estoque pendente</span> : isExpired(order) ? <span className="status-badge budget-expired">Vencido</span> : isFollowUpDue(order) ? <span className="status-badge follow-up-due">Retorno pendente</span> : <StatusBadge status={order.status} />}</div>
                   <strong>{order.customer}</strong>
                   <p>{order.plate ?? "Sem placa"} · {order.model ?? "Modelo não informado"}</p>
                   <div className="order-card-bottom"><span>{budgetMode && order.validUntil ? `Validade: ${formatDate(order.validUntil)}` : formatDate(order.budgetDate)}</span><b>{currency.format(order.total)}</b><ChevronRight size={18} /></div>
@@ -315,6 +320,8 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
                 {selected.lastFollowUpAt && <div className={`service-notes follow-up-record ${isFollowUpDue(selected) ? "due" : ""}`}><MessageCircleMore size={18} /><div><span>Acompanhamento comercial</span><p>{selected.followUpCount ?? 1} contato(s) · último em {formatDateTime(selected.lastFollowUpAt)}{selected.nextFollowUpAt ? <><br />Próximo retorno: {formatDateTime(selected.nextFollowUpAt)}</> : null}</p></div></div>}
 
                 {selected.approvedAt && <div className="service-notes approval-record"><CheckCircle2 size={18} /><div><span>Aprovação do cliente</span><p><strong>{selected.approvedByCustomer ?? selected.customer}</strong> · {selected.approvalMethod ?? "Canal não informado"} · {formatDateTime(selected.approvedAt)}{selected.approvalNotes ? <><br />{selected.approvalNotes}</> : null}</p></div></div>}
+
+                {Boolean(selected.stockWarningItems?.length) && <div className="service-notes stock-warning-record"><AlertTriangle size={18} /><div><span>Venda concluída sem estoque</span><p>{selected.stockWarningItems!.map((item) => `${item.name} (saldo ${item.currentStock.toLocaleString("pt-BR")})`).join(" · ")}<br/><small>O aviso desaparecerá quando todos esses produtos voltarem a ter saldo não negativo.</small></p></div></div>}
 
                 <div className="actions-bar">
                   <a className="action-button" href={`/api/orders/${selected.id}/pdf`} download><Download size={18} /> Baixar PDF</a>
