@@ -10,6 +10,8 @@ import {
   registryListSql,
   uuidPattern,
   isValidBrazilianDocument,
+  fiscalDigits,
+  validateProductFiscalFields,
 } from "@/lib/registries";
 import { getTenantScope } from "@/lib/auth";
 
@@ -66,6 +68,8 @@ export async function POST(request: Request, context: Context) {
   if ((entity === "customers" || entity === "suppliers") && document && !isValidBrazilianDocument(document)) {
     return NextResponse.json({ error: document.length <= 11 ? "CPF inválido." : "CNPJ inválido." }, { status: 400 });
   }
+  const fiscalError = entity === "products" ? validateProductFiscalFields(body) : null;
+  if (fiscalError) return NextResponse.json({ error: fiscalError }, { status: 400 });
 
   const client = await pool.connect();
   try {
@@ -104,7 +108,7 @@ export async function POST(request: Request, context: Context) {
          (company_id,name,type,cost_price,sale_price,profit_margin_percent,current_stock,active,sku,barcode,item_kind,ncm,cest,fiscal_origin,commercial_unit,default_cfop,tax_code,tax_rate,brand,supplier_id,minimum_stock,lead_time_days,stock_location,
           ibs_cbs_cst,ibs_cbs_classification,ibs_state_rate,ibs_municipal_rate,cbs_rate,selective_tax_cst,selective_tax_classification,selective_tax_rate,nbs_code,service_code)
          VALUES ($1::uuid,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,COALESCE($15,'UN'),$16,$17,$18,$19,$20::uuid,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33) RETURNING *`,
-        [scope.companyId,name,cleanText(body.type),cost,sale,margin,numberValue(body.stock),booleanValue(body.active),cleanText(body.sku),cleanText(body.barcode),body.itemKind==="SERVICO"?"SERVICO":"PRODUTO",cleanText(body.ncm),cleanText(body.cest),cleanText(body.fiscalOrigin),cleanText(body.commercialUnit),cleanText(body.defaultCfop),cleanText(body.taxCode),Math.max(0,numberValue(body.taxRate)),cleanText(body.brand),supplierId,Math.max(0,numberValue(body.minimumStock)),Math.max(0,Math.trunc(numberValue(body.leadTimeDays))),cleanText(body.stockLocation),cleanText(body.ibsCbsCst),cleanText(body.ibsCbsClassification),Math.max(0,numberValue(body.ibsStateRate)),Math.max(0,numberValue(body.ibsMunicipalRate)),Math.max(0,numberValue(body.cbsRate)),cleanText(body.selectiveTaxCst),cleanText(body.selectiveTaxClassification),Math.max(0,numberValue(body.selectiveTaxRate)),cleanText(body.nbsCode),cleanText(body.serviceCode)],
+        [scope.companyId,name,cleanText(body.type),cost,sale,margin,numberValue(body.stock),booleanValue(body.active),cleanText(body.sku),cleanText(body.barcode),body.itemKind==="SERVICO"?"SERVICO":"PRODUTO",fiscalDigits(body.ncm),fiscalDigits(body.cest),fiscalDigits(body.fiscalOrigin),cleanText(body.commercialUnit)?.toUpperCase(),fiscalDigits(body.defaultCfop),fiscalDigits(body.taxCode),Math.max(0,numberValue(body.taxRate)),cleanText(body.brand),supplierId,Math.max(0,numberValue(body.minimumStock)),Math.max(0,Math.trunc(numberValue(body.leadTimeDays))),cleanText(body.stockLocation),fiscalDigits(body.ibsCbsCst),fiscalDigits(body.ibsCbsClassification),Math.max(0,numberValue(body.ibsStateRate)),Math.max(0,numberValue(body.ibsMunicipalRate)),Math.max(0,numberValue(body.cbsRate)),fiscalDigits(body.selectiveTaxCst),fiscalDigits(body.selectiveTaxClassification),Math.max(0,numberValue(body.selectiveTaxRate)),fiscalDigits(body.nbsCode),cleanText(body.serviceCode)],
       );
       inserted.rows[0].supplier_name=supplierId?(await client.query(`SELECT name FROM app_live.suppliers WHERE id=$1::uuid`,[supplierId])).rows[0]?.name:null;
     } else if (entity === "suppliers") {

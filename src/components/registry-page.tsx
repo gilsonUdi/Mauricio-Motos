@@ -25,6 +25,17 @@ type ColumnDefinition = { key: string; label: string; format?: "money" | "percen
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const number = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 3 });
 
+const productOnlyFields = new Set(["stock","minimumStock","leadTimeDays","stockLocation","ncm","cest","fiscalOrigin","defaultCfop","taxCode","taxRate"]);
+const serviceOnlyFields = new Set(["nbsCode","serviceCode"]);
+const productFieldSections: Record<string,string> = {
+  name:"Identificação",itemKind:"Identificação",type:"Identificação",sku:"Identificação",barcode:"Identificação",brand:"Identificação",supplierId:"Identificação",active:"Situação do cadastro",
+  costPrice:"Valores comerciais",salePrice:"Valores comerciais",profitMargin:"Valores comerciais",
+  stock:"Estoque e reposição",minimumStock:"Estoque e reposição",leadTimeDays:"Estoque e reposição",stockLocation:"Estoque e reposição",
+  ncm:"Tributação vigente",cest:"Tributação vigente",fiscalOrigin:"Tributação vigente",commercialUnit:"Tributação vigente",defaultCfop:"Tributação vigente",taxCode:"Tributação vigente",taxRate:"Tributação vigente",
+  ibsCbsCst:"Reforma tributária",ibsCbsClassification:"Reforma tributária",ibsStateRate:"Reforma tributária",ibsMunicipalRate:"Reforma tributária",cbsRate:"Reforma tributária",selectiveTaxCst:"Reforma tributária",selectiveTaxClassification:"Reforma tributária",selectiveTaxRate:"Reforma tributária",
+  nbsCode:"Dados fiscais do serviço",serviceCode:"Dados fiscais do serviço",
+};
+
 const configs: Record<RegistryEntity, {
   title: string;
   singular: string;
@@ -221,6 +232,7 @@ export function RegistryPage({ entity }: { entity: RegistryEntity }) {
     return records.filter((record) => Object.values(record).some((value) => String(value ?? "").toLocaleLowerCase("pt-BR").includes(term)));
   }, [query, records]);
   const activeCount = records.filter((record) => record.active !== false).length;
+  const visibleFields = config.fields.filter((field) => entity !== "products" || (String(form.itemKind || "PRODUTO") === "SERVICO" ? !productOnlyFields.has(field.key) : !serviceOnlyFields.has(field.key)));
 
   function openForm(record: RegistryRecord | null) {
     setEditing(record);
@@ -302,7 +314,9 @@ export function RegistryPage({ entity }: { entity: RegistryEntity }) {
           <header className="modal-header"><div><span className="section-kicker">CADASTRO</span><h2 id="registry-form-title">{editing ? `Editar ${config.singular}` : `Novo ${config.singular}`}</h2></div><button className="icon-button" onClick={() => setEditing(undefined)} aria-label="Fechar"><X /></button></header>
           <form className="registry-form" onSubmit={save}>
             <div className="form-grid registry-form-grid">
-              {config.fields.map((field) => field.type === "checkbox" ? (
+              {visibleFields.map((field,index) => <div className="registry-field-contents" key={field.key}>
+                {entity === "products" && (index === 0 || productFieldSections[visibleFields[index - 1].key] !== productFieldSections[field.key]) && <div className="registry-form-section"><strong>{productFieldSections[field.key]}</strong>{productFieldSections[field.key] === "Reforma tributária" && <small>Campos cadastrais de IBS, CBS e Imposto Seletivo; o sistema ainda não calcula ou emite tributos automaticamente.</small>}</div>}
+                {field.type === "checkbox" ? (
                 <label className="checkbox-field" key={field.key}><input type="checkbox" checked={Boolean(form[field.key])} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.checked }))} /><span>{field.label}</span></label>
               ) : field.type === "customer" ? (
                 <label className="field span-2" key={field.key}><span>{field.label}</span><select value={String(form[field.key] ?? "")} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))}><option value="">Sem cliente vinculado</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></label>
@@ -315,8 +329,8 @@ export function RegistryPage({ entity }: { entity: RegistryEntity }) {
               ) : field.type === "document" || field.type === "zip" ? (
                 <label className="field lookup-field" key={field.key}><span>{field.label}{field.required ? " *" : ""}</span><div><input inputMode="numeric" required={field.required} value={String(form[field.key] ?? "")} placeholder={field.type==="zip"?"00000-000":"Somente números"} onChange={(event)=>setForm(current=>({...current,[field.key]:event.target.value}))}/><button type="button" onClick={()=>void lookup(field.type==="zip"?"cep":"cnpj")} disabled={lookupLoading!==undefined||(field.type==="zip"?String(form[field.key]??"").replace(/\D/g,"").length!==8:String(form[field.key]??"").replace(/\D/g,"").length!==14)}>{lookupLoading===(field.type==="zip"?"cep":"cnpj")?<LoaderCircle className="spin" size={15}/>:<Search size={15}/>} {field.type==="zip"?"Buscar CEP":"Buscar CNPJ"}</button></div></label>
               ) : (
-                <label className={`field ${field.key === "name" ? "span-2" : ""}`} key={field.key}><span>{field.label}{field.required ? " *" : ""}</span><input type={field.type ?? "text"} min={field.type === "number" ? "0" : undefined} step={field.step} required={field.required} value={String(form[field.key] ?? "")} placeholder={field.placeholder} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))} /></label>
-              ))}
+                <label className={`field ${field.key === "name" ? "span-2" : ""}`} key={field.key}><span>{field.label}{field.required ? " *" : ""}</span><input type={field.type ?? "text"} min={field.type === "number" ? "0" : undefined} max={field.type === "number" && field.key.toLocaleLowerCase("pt-BR").includes("rate") ? "100" : undefined} step={field.step} required={field.required} value={String(form[field.key] ?? "")} placeholder={field.placeholder} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))} /></label>
+              )}</div>)}
             </div>
             {error && <p className="form-error">{error}</p>}
             <footer className="modal-actions"><button type="button" className="secondary-button" onClick={() => setEditing(undefined)}>Cancelar</button><button type="submit" className="primary-button" disabled={saving}>{saving ? <LoaderCircle className="spin" size={18} /> : <Save size={18} />}{saving ? "Salvando..." : "Salvar"}</button></footer>

@@ -183,6 +183,11 @@ h3 { font-size: 20px; }
 .budget-summary .grand-total { align-items: baseline; padding-top: 12px; border-top: 1px solid #515757; }
 .budget-summary .grand-total strong { color: var(--amber); font: 700 25px var(--font-oswald); }
 .form-error { margin: 14px 0 0; padding: 11px 13px; border-left: 3px solid var(--red); border-radius: 8px; color: #843b36; background: #f8e7e5; font-size: 13px; }
+.registry-field-contents { display: contents; }
+.registry-form-section { grid-column: 1 / -1; display: grid; gap: 3px; margin-top: 8px; padding: 11px 2px 7px; border-bottom: 1px solid var(--line); color: var(--ink); }
+.registry-form-section:first-child { margin-top: 0; }
+.registry-form-section strong { font-family: var(--font-serif); font-size: 17px; }
+.registry-form-section small { color: var(--muted); font-size: 11px; line-height: 1.45; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
 .secondary-button { border: 1px solid #c9c5bc; border-radius: 12px; padding: 11px 16px; color: #555a5a; background: transparent; font-weight: 700; }
 

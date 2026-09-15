@@ -86,6 +86,7 @@ export function mapRegistryRecord(entity: RegistryEntity, row: Record<string, un
 
 export const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const cleanText = (value: unknown) => typeof value === "string" ? value.trim() || null : null;
+export const fiscalDigits = (value: unknown) => cleanText(value)?.replace(/\D/g, "") || null;
 export const numberValue = (value: unknown, fallback = 0) => parseBrazilianNumber(value, fallback);
 export const booleanValue = (value: unknown, fallback = true) => typeof value === "boolean" ? value : fallback;
 
@@ -121,4 +122,30 @@ export function isValidCnpj(value: string) {
 
 export function isValidBrazilianDocument(value: string) {
   return value.length === 11 ? isValidCpf(value) : value.length === 14 ? isValidCnpj(value) : false;
+}
+
+export function validateProductFiscalFields(body: Record<string, unknown>) {
+  const exactLengths: Array<[unknown, number, string]> = [
+    [body.ncm, 8, "NCM"], [body.cest, 7, "CEST"], [body.defaultCfop, 4, "CFOP"],
+    [body.ibsCbsCst, 3, "CST do IBS/CBS"], [body.ibsCbsClassification, 6, "cClassTrib"],
+    [body.selectiveTaxCst, 3, "CST do Imposto Seletivo"], [body.nbsCode, 9, "NBS"],
+  ];
+  for (const [value, length, label] of exactLengths) {
+    const normalized = fiscalDigits(value);
+    if (normalized && normalized.length !== length) return `${label} deve possuir ${length} dígitos.`;
+  }
+  const origin = fiscalDigits(body.fiscalOrigin);
+  if (origin && !/^[0-8]$/.test(origin)) return "A origem fiscal deve ser um código entre 0 e 8.";
+  const legacyTaxCode = fiscalDigits(body.taxCode);
+  if (legacyTaxCode && !/^\d{2,4}$/.test(legacyTaxCode)) return "CST/CSOSN deve possuir de 2 a 4 dígitos.";
+  const rateFields: Array<[unknown, string]> = [
+    [body.taxRate, "Alíquota padrão"], [body.ibsStateRate, "Alíquota IBS estadual"],
+    [body.ibsMunicipalRate, "Alíquota IBS municipal"], [body.cbsRate, "Alíquota CBS"],
+    [body.selectiveTaxRate, "Alíquota do Imposto Seletivo"],
+  ];
+  for (const [value, label] of rateFields) {
+    const rate = numberValue(value);
+    if (rate < 0 || rate > 100) return `${label} deve ficar entre 0% e 100%.`;
+  }
+  return null;
 }
