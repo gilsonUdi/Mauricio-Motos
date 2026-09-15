@@ -118,6 +118,9 @@ h3 { font-size: 20px; }
 .service-notes.stock-warning-record { border-left-color: #b63f35; background: #fcedeb; }
 .service-notes.stock-warning-record span { color: #9b3028; }
 .service-notes.stock-warning-record svg { color: #b63f35; flex: 0 0 auto; }
+.service-notes.sale-financial-record { border-left-color: #27719e; background: #edf6fb; }
+.service-notes.sale-financial-record span { color: #245f82; }
+.service-notes.sale-financial-record svg { color: #27719e; flex: 0 0 auto; }
 .status-badge.stock-pending { color: #8c241e; background: #f8d9d5; }
 .status-badge.follow-up-due { color: #80530e; background: var(--amber-soft); }
 .form-success { margin: 12px 0 0; padding: 10px 12px; border-radius: 9px; color: #217044; background: #edf8f1; font-size: 13px; }

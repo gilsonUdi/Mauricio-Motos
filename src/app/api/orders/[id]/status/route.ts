@@ -99,6 +99,7 @@ export async function PATCH(
       firstDueDate: string;
       paymentMethodId: string;
       financialAccountId: string;
+      financialAccountName: string;
       methodName: string;
       feePercent: number;
       customerAssumesFee: boolean;
@@ -141,16 +142,12 @@ export async function PATCH(
         throw new Error("INSTALLMENTS_NOT_ALLOWED");
       financialAccountId =
         financialAccountId || method.rows[0].default_account_id || "";
-      if (
-        !financialAccountId ||
-        !(
-          await client.query(
-            `SELECT 1 FROM app_live.financial_accounts WHERE id=$1::uuid AND company_id=$2::uuid AND active`,
-            [financialAccountId, scope.companyId],
-          )
-        ).rowCount
-      )
-        throw new Error("FINANCE_REQUIRED");
+      if (!financialAccountId) throw new Error("FINANCE_REQUIRED");
+      const financialAccount = await client.query(
+        `SELECT name FROM app_live.financial_accounts WHERE id=$1::uuid AND company_id=$2::uuid AND active`,
+        [financialAccountId, scope.companyId],
+      );
+      if (!financialAccount.rowCount) throw new Error("FINANCE_REQUIRED");
       let feePercent = Number(method.rows[0].default_fee_percent ?? 0);
       if (method.rows[0].variable_fee) {
         const rule = await client.query(
@@ -171,6 +168,7 @@ export async function PATCH(
         firstDueDate,
         paymentMethodId,
         financialAccountId,
+        financialAccountName: financialAccount.rows[0].name,
         methodName: method.rows[0].name,
         feePercent,
         customerAssumesFee,
@@ -389,7 +387,7 @@ export async function PATCH(
            cancelled_at = CASE WHEN $2 = 'CANCELADO' THEN now() ELSE NULL END,
            updated_at = now()
        WHERE id=$1::uuid AND company_id=$3::uuid
-       RETURNING id::text,status,approved_at AS "approvedAt",approved_by_customer AS "approvedByCustomer",
+       RETURNING id::text,status,sale_date::text AS "saleDate",approved_at AS "approvedAt",approved_by_customer AS "approvedByCustomer",
                  approval_method AS "approvalMethod",approval_notes AS "approvalNotes"`,
       [id,body.status,scope.companyId,enteringApproval ? approvedByCustomer : "",enteringApproval ? approvalMethod : "",enteringApproval ? approvalNotes : ""],
     );
@@ -438,6 +436,15 @@ export async function PATCH(
     await client.query("COMMIT");
     return NextResponse.json({
       ...updated.rows[0],
+      paymentMethod: enteringSale ? saleFinance!.methodName : undefined,
+      financialAccountName: enteringSale ? saleFinance!.financialAccountName : undefined,
+      entryAmount: enteringSale ? saleFinance!.entryAmount : undefined,
+      installmentCount: enteringSale ? saleFinance!.installmentCount : undefined,
+      firstDueDate: enteringSale ? saleFinance!.firstDueDate : undefined,
+      paymentFeePercent: enteringSale ? saleFinance!.feePercent : undefined,
+      paymentFeeAmount: enteringSale ? saleFinance!.feeAmount : undefined,
+      customerAssumesPaymentFee: enteringSale ? saleFinance!.customerAssumesFee : undefined,
+      chargedTotal: enteringSale ? saleFinance!.chargedTotal : undefined,
       stockOverrideAt: enteringSale && stockShortages.length ? new Date().toISOString() : undefined,
       stockWarningItems: enteringSale ? stockShortages.map((item) => ({ ...item, currentStock: item.resultingStock })) : [],
     });

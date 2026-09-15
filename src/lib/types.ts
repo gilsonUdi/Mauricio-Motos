@@ -38,6 +38,14 @@ export type WorkOrder = {
   discount?: number;
   status: OrderStatus;
   paymentMethod?: string;
+  financialAccountName?: string;
+  entryAmount?: number;
+  installmentCount?: number;
+  firstDueDate?: string;
+  paymentFeePercent?: number;
+  paymentFeeAmount?: number;
+  customerAssumesPaymentFee?: boolean;
+  chargedTotal?: number;
   approvedAt?: string;
   approvedByCustomer?: string;
   approvalMethod?: string;

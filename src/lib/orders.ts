@@ -22,6 +22,14 @@ type OrderRow = {
   discount: string | number;
   status: OrderStatus;
   payment_method: string | null;
+  financial_account_name: string | null;
+  entry_amount: string | number | null;
+  installment_count: number | null;
+  first_due_date: string | null;
+  payment_fee_percent: string | number | null;
+  payment_fee_amount: string | number | null;
+  customer_assumes_payment_fee: boolean | null;
+  charged_total: string | number | null;
   approved_at: string | null;
   approved_by_customer: string | null;
   approval_method: string | null;
@@ -63,6 +71,14 @@ export async function getDashboardData(companyId: string): Promise<DashboardData
         o.discount_value AS discount,
         o.status,
         o.payment_method,
+        fa.name AS financial_account_name,
+        o.entry_amount,
+        o.installment_count,
+        o.first_due_date::text,
+        o.payment_fee_percent,
+        o.payment_fee_amount,
+        o.customer_assumes_payment_fee,
+        COALESCE(o.charged_total,o.total_value) AS charged_total,
         o.approved_at,
         o.approved_by_customer,
         o.approval_method,
@@ -102,9 +118,10 @@ export async function getDashboardData(companyId: string): Promise<DashboardData
         ) AS items
       FROM app_live.work_orders o
       LEFT JOIN app_live.customers c ON c.id = o.customer_id
+      LEFT JOIN app_live.financial_accounts fa ON fa.id=o.financial_account_id AND fa.company_id=o.company_id
       LEFT JOIN app_live.work_order_items i ON i.work_order_id = o.id
       WHERE o.company_id = $1::uuid
-      GROUP BY o.id, c.phone
+      GROUP BY o.id, c.phone, fa.name
       ORDER BY COALESCE(o.sale_date, o.budget_date) DESC NULLS LAST, o.created_at DESC
       LIMIT 150
     `, [companyId]);
@@ -129,6 +146,14 @@ export async function getDashboardData(companyId: string): Promise<DashboardData
       discount: Number(row.discount ?? 0),
       status: row.status,
       paymentMethod: row.payment_method ?? undefined,
+      financialAccountName: row.financial_account_name ?? undefined,
+      entryAmount: Number(row.entry_amount ?? 0),
+      installmentCount: Number(row.installment_count ?? 1),
+      firstDueDate: row.first_due_date ?? undefined,
+      paymentFeePercent: Number(row.payment_fee_percent ?? 0),
+      paymentFeeAmount: Number(row.payment_fee_amount ?? 0),
+      customerAssumesPaymentFee: Boolean(row.customer_assumes_payment_fee),
+      chargedTotal: Number(row.charged_total ?? row.total ?? 0),
       approvedAt: row.approved_at ?? undefined,
       approvedByCustomer: row.approved_by_customer ?? undefined,
       approvalMethod: row.approval_method ?? undefined,

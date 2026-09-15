@@ -17,6 +17,7 @@ import {
   Pencil,
   Search,
   Share2,
+  WalletCards,
   XCircle,
 } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -132,7 +133,7 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
       setNotice(message);
       return;
     }
-    setOrders((current) => current.map((order) => order.id === selected.id ? { ...order, status, approvedAt: payload.approvedAt, approvedByCustomer: payload.approvedByCustomer, approvalMethod: payload.approvalMethod, approvalNotes: payload.approvalNotes, stockOverrideAt: payload.stockOverrideAt, stockWarningItems: payload.stockWarningItems ?? [] } : order));
+    setOrders((current) => current.map((order) => order.id === selected.id ? { ...order, status, approvedAt: payload.approvedAt, approvedByCustomer: payload.approvedByCustomer, approvalMethod: payload.approvalMethod, approvalNotes: payload.approvalNotes, stockOverrideAt: payload.stockOverrideAt, stockWarningItems: payload.stockWarningItems ?? [], ...(status === "VENDA_REALIZADA" ? { saleDate:payload.saleDate,paymentMethod:payload.paymentMethod,financialAccountName:payload.financialAccountName,entryAmount:payload.entryAmount,installmentCount:payload.installmentCount,firstDueDate:payload.firstDueDate,paymentFeePercent:payload.paymentFeePercent,paymentFeeAmount:payload.paymentFeeAmount,customerAssumesPaymentFee:payload.customerAssumesPaymentFee,chargedTotal:payload.chargedTotal } : {}) } : order));
     if (status === "VENDA_REALIZADA") setClosingSale(null);
     if (status === "PEDIDO") setApprovingOrder(null);
     setNotice(`Ordem ${selected.number} atualizada para ${statusLabels[status].toLowerCase()}.`);
@@ -320,6 +321,8 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
                 {selected.lastFollowUpAt && <div className={`service-notes follow-up-record ${isFollowUpDue(selected) ? "due" : ""}`}><MessageCircleMore size={18} /><div><span>Acompanhamento comercial</span><p>{selected.followUpCount ?? 1} contato(s) · último em {formatDateTime(selected.lastFollowUpAt)}{selected.nextFollowUpAt ? <><br />Próximo retorno: {formatDateTime(selected.nextFollowUpAt)}</> : null}</p></div></div>}
 
                 {selected.approvedAt && <div className="service-notes approval-record"><CheckCircle2 size={18} /><div><span>Aprovação do cliente</span><p><strong>{selected.approvedByCustomer ?? selected.customer}</strong> · {selected.approvalMethod ?? "Canal não informado"} · {formatDateTime(selected.approvedAt)}{selected.approvalNotes ? <><br />{selected.approvalNotes}</> : null}</p></div></div>}
+
+                {selected.status === "VENDA_REALIZADA" && selected.paymentMethod && <div className="service-notes sale-financial-record"><WalletCards size={18}/><div><span>Fechamento financeiro</span><p><strong>{selected.paymentMethod}</strong>{selected.financialAccountName ? ` · ${selected.financialAccountName}` : ""}<br/>Entrada: {currency.format(selected.entryAmount ?? 0)} · {selected.installmentCount ?? 1}x · primeiro vencimento em {formatDate(selected.firstDueDate)}<br/>Taxa: {(selected.paymentFeePercent ?? 0).toLocaleString("pt-BR")}% ({currency.format(selected.paymentFeeAmount ?? 0)}) · {selected.customerAssumesPaymentFee ? "repassada ao cliente" : "assumida pela loja"}<br/>{selected.customerAssumesPaymentFee ? <>Total cobrado: <strong>{currency.format(selected.chargedTotal ?? selected.total)}</strong> · </> : null}Líquido estimado: <strong>{currency.format((selected.chargedTotal ?? selected.total) - (selected.paymentFeeAmount ?? 0))}</strong></p></div></div>}
 
                 {Boolean(selected.stockWarningItems?.length) && <div className="service-notes stock-warning-record"><AlertTriangle size={18} /><div><span>Venda concluída sem estoque</span><p>{selected.stockWarningItems!.map((item) => `${item.name} (saldo ${item.currentStock.toLocaleString("pt-BR")})`).join(" · ")}<br/><small>O aviso desaparecerá quando todos esses produtos voltarem a ter saldo não negativo.</small></p></div></div>}
 
