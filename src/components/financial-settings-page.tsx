@@ -35,6 +35,7 @@ type Method = {
   code?: string;
   name: string;
   supportsInstallments: boolean;
+  maximumInstallments: number;
   variableFee: boolean;
   defaultFeePercent: number;
   defaultAccountId?: string;
@@ -72,6 +73,7 @@ export function FinancialSettingsPage() {
   const [openingBalance, setOpeningBalance] = useState("0,00");
   const [active, setActive] = useState(true);
   const [supportsInstallments, setSupportsInstallments] = useState(false);
+  const [maximumInstallments, setMaximumInstallments] = useState(1);
   const [variableFee, setVariableFee] = useState(false);
   const [defaultFee, setDefaultFee] = useState("0");
   const [defaultAccountId, setDefaultAccountId] = useState("");
@@ -117,6 +119,7 @@ export function FinancialSettingsPage() {
     setEditing({ entity: "method", id: method?.id });
     setName(method?.name ?? "");
     setSupportsInstallments(method?.supportsInstallments ?? false);
+    setMaximumInstallments(method?.maximumInstallments ?? (method?.supportsInstallments ? 12 : 1));
     setVariableFee(method?.variableFee ?? false);
     setDefaultFee(String(method?.defaultFeePercent ?? 0));
     setDefaultAccountId(method?.defaultAccountId ?? "");
@@ -137,6 +140,7 @@ export function FinancialSettingsPage() {
         openingBalance: parseBrazilianNumber(openingBalance),
         active,
         supportsInstallments,
+        maximumInstallments: supportsInstallments ? maximumInstallments : 1,
         variableFee,
         defaultFeePercent: Number(defaultFee.replace(",", ".")) || 0,
         defaultAccountId: defaultAccountId || null,
@@ -305,7 +309,7 @@ export function FinancialSettingsPage() {
                           <strong>{method.name}</strong>
                           {method.supportsInstallments && (
                             <small className="table-note">
-                              Aceita parcelamento
+                              Até {method.maximumInstallments}x
                             </small>
                           )}
                         </td>
@@ -421,7 +425,7 @@ export function FinancialSettingsPage() {
                       <input
                         type="number"
                         min="0"
-                        max="100"
+                        max="99.9999"
                         step="0.0001"
                         value={defaultFee}
                         onChange={(event) => setDefaultFee(event.target.value)}
@@ -438,6 +442,12 @@ export function FinancialSettingsPage() {
                       />
                       <span>Permitir parcelamento</span>
                     </label>
+                    {supportsInstallments && (
+                      <label className="field">
+                        <span>Máximo de parcelas</span>
+                        <input type="number" min="2" max="120" value={maximumInstallments} onChange={(event) => setMaximumInstallments(Math.max(2, Math.min(120, Number(event.target.value) || 2)))} />
+                      </label>
+                    )}
                     <label className="checkbox-field">
                       <input
                         type="checkbox"
@@ -504,7 +514,7 @@ export function FinancialSettingsPage() {
                               <input
                                 type="number"
                                 min="0"
-                                max="100"
+                                max="99.9999"
                                 step="0.0001"
                                 value={rule.feePercent}
                                 onChange={(event) =>

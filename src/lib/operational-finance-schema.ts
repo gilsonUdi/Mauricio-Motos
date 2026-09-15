@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS app_live.payment_methods (
   code text,
   name text NOT NULL,
   supports_installments boolean NOT NULL DEFAULT false,
+  maximum_installments integer NOT NULL DEFAULT 1 CHECK (maximum_installments BETWEEN 1 AND 120),
   variable_fee boolean NOT NULL DEFAULT false,
   default_fee_percent numeric(8,4) NOT NULL DEFAULT 0 CHECK (default_fee_percent BETWEEN 0 AND 100),
   default_account_id uuid REFERENCES app_live.financial_accounts(id) ON DELETE SET NULL,
@@ -32,6 +33,7 @@ CREATE TABLE IF NOT EXISTS app_live.payment_methods (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE app_live.payment_methods ADD COLUMN IF NOT EXISTS maximum_installments integer NOT NULL DEFAULT 1;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_methods_company_name ON app_live.payment_methods(company_id,lower(name));
 CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_methods_company_code ON app_live.payment_methods(company_id,code) WHERE code IS NOT NULL;
 
@@ -65,14 +67,14 @@ SELECT c.id,v.name,v.account_type FROM app_live.companies c CROSS JOIN (VALUES
   ('Caixa','CAIXA'),('Banco','BANCO'),('Carteira','CARTEIRA')
 ) AS v(name,account_type) ON CONFLICT DO NOTHING;
 
-INSERT INTO app_live.payment_methods(company_id,code,name,supports_installments)
-SELECT c.id,v.code,v.name,v.installments FROM app_live.companies c CROSS JOIN (VALUES
-  ('DINHEIRO','Dinheiro',false),('PIX','PIX',false),('CREDITO','Cartão de crédito',true),
-  ('DEBITO','Cartão de débito',false),('BOLETO','Boleto',true),('TRANSFERENCIA','Transferência',false),('OUTRO','Outro',false)
-) AS v(code,name,installments) ON CONFLICT DO NOTHING;
+INSERT INTO app_live.payment_methods(company_id,code,name,supports_installments,maximum_installments)
+SELECT c.id,v.code,v.name,v.installments,v.maximum_installments FROM app_live.companies c CROSS JOIN (VALUES
+  ('DINHEIRO','Dinheiro',false,1),('PIX','PIX',false,1),('CREDITO','Cartão de crédito',true,12),
+  ('DEBITO','Cartão de débito',false,1),('BOLETO','Boleto',true,12),('TRANSFERENCIA','Transferência',false,1),('OUTRO','Outro',false,1)
+) AS v(code,name,installments,maximum_installments) ON CONFLICT DO NOTHING;
 
 INSERT INTO app_live.financial_categories(company_id,group_id,name,nature,include_in_drg,system_code)
-SELECT g.company_id,g.id,'Taxas das formas de pagamento','DESPESA',true,'PAYMENT_FEES'
+SELECT g.company_id,g.id,'Taxas de Máquina de Cartão','DESPESA',true,'PAYMENT_FEES'
 FROM app_live.financial_category_groups g WHERE g.system_code='FINANCIAL_EXPENSES'
 ON CONFLICT DO NOTHING;
 `;
@@ -90,12 +92,12 @@ export function ensureOperationalFinanceSchema(pool: Pool) {
 export async function seedOperationalFinance(connection: Queryable, companyId: string) {
   await connection.query(`INSERT INTO app_live.financial_accounts(company_id,name,account_type) VALUES
     ($1::uuid,'Caixa','CAIXA'),($1::uuid,'Banco','BANCO'),($1::uuid,'Carteira','CARTEIRA') ON CONFLICT DO NOTHING`,[companyId]);
-  await connection.query(`INSERT INTO app_live.payment_methods(company_id,code,name,supports_installments) VALUES
-    ($1::uuid,'DINHEIRO','Dinheiro',false),($1::uuid,'PIX','PIX',false),($1::uuid,'CREDITO','Cartão de crédito',true),
-    ($1::uuid,'DEBITO','Cartão de débito',false),($1::uuid,'BOLETO','Boleto',true),($1::uuid,'TRANSFERENCIA','Transferência',false),($1::uuid,'OUTRO','Outro',false)
+  await connection.query(`INSERT INTO app_live.payment_methods(company_id,code,name,supports_installments,maximum_installments) VALUES
+    ($1::uuid,'DINHEIRO','Dinheiro',false,1),($1::uuid,'PIX','PIX',false,1),($1::uuid,'CREDITO','Cartão de crédito',true,12),
+    ($1::uuid,'DEBITO','Cartão de débito',false,1),($1::uuid,'BOLETO','Boleto',true,12),($1::uuid,'TRANSFERENCIA','Transferência',false,1),($1::uuid,'OUTRO','Outro',false,1)
     ON CONFLICT DO NOTHING`,[companyId]);
   await connection.query(`INSERT INTO app_live.financial_categories(company_id,group_id,name,nature,include_in_drg,system_code)
-    SELECT $1::uuid,g.id,'Taxas das formas de pagamento','DESPESA',true,'PAYMENT_FEES'
+    SELECT $1::uuid,g.id,'Taxas de Máquina de Cartão','DESPESA',true,'PAYMENT_FEES'
     FROM app_live.financial_category_groups g WHERE g.company_id=$1::uuid AND g.system_code='FINANCIAL_EXPENSES' ON CONFLICT DO NOTHING`,[companyId]);
 }
 

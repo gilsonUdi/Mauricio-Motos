@@ -1,0 +1,10 @@
+ALTER TABLE app_live.products ADD COLUMN IF NOT EXISTS ibs_cbs_cst text;
+ALTER TABLE app_live.products ADD COLUMN IF NOT EXISTS ibs_cbs_classification text;
+ALTER TABLE app_live.products ADD COLUMN IF NOT EXISTS ibs_state_rate numeric(8,4) NOT NULL DEFAULT 0;
+ALTER TABLE app_live.products ADD COLUMN IF NOT EXISTS ibs_municipal_rate numeric(8,4) NOT NULL DEFAULT 0;
+ALTER TABLE app_live.products ADD COLUMN IF NOT EXISTS cbs_rate numeric(8,4) NOT NULL DEFAULT 0;
+ALTER TABLE app_live.products ADD COLUMN IF NOT EXISTS selective_tax_cst text;
+ALTER TABLE app_live.products ADD COLUMN IF NOT EXISTS selective_tax_classification text;
+ALTER TABLE app_live.products ADD COLUMN IF NOT EXISTS selective_tax_rate numeric(8,4) NOT NULL DEFAULT 0;
+ALTER TABLE app_live.products ADD COLUMN IF NOT EXISTS nbs_code text;
+ALTER TABLE app_live.products ADD COLUMN IF NOT EXISTS service_code text;

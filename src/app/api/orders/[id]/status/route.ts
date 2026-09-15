@@ -43,6 +43,7 @@ export async function PATCH(
     firstDueDate?: string;
     paymentMethodId?: string;
     financialAccountId?: string;
+    customerAssumesFee?: boolean;
     approvedByCustomer?: string;
     approvalMethod?: string;
     approvalNotes?: string;
@@ -98,6 +99,9 @@ export async function PATCH(
       financialAccountId: string;
       methodName: string;
       feePercent: number;
+      customerAssumesFee: boolean;
+      chargedTotal: number;
+      feeAmount: number;
     } | null = null;
     if (enteringSale) {
       const entryAmount = Math.max(0, Number(body.entryAmount) || 0);
@@ -125,11 +129,13 @@ export async function PATCH(
       if (!firstDueDate || !paymentMethodId)
         throw new Error("FINANCE_REQUIRED");
       const method = await client.query(
-        `SELECT name,supports_installments,variable_fee,default_fee_percent,default_account_id::text FROM app_live.payment_methods WHERE id=$1::uuid AND company_id=$2::uuid AND active`,
+        `SELECT name,supports_installments,maximum_installments,variable_fee,default_fee_percent,default_account_id::text FROM app_live.payment_methods WHERE id=$1::uuid AND company_id=$2::uuid AND active`,
         [paymentMethodId, scope.companyId],
       );
       if (!method.rowCount) throw new Error("FINANCE_REQUIRED");
       if (installmentCount > 1 && !method.rows[0].supports_installments)
+        throw new Error("INSTALLMENTS_NOT_ALLOWED");
+      if (installmentCount > Number(method.rows[0].maximum_installments ?? 1))
         throw new Error("INSTALLMENTS_NOT_ALLOWED");
       financialAccountId =
         financialAccountId || method.rows[0].default_account_id || "";
@@ -149,8 +155,14 @@ export async function PATCH(
           `SELECT fee_percent FROM app_live.payment_fee_rules WHERE payment_method_id=$1::uuid AND minimum_installments<=$2 AND (maximum_installments IS NULL OR maximum_installments>=$2) ORDER BY minimum_installments DESC LIMIT 1`,
           [paymentMethodId, installmentCount],
         );
-        feePercent = Number(rule.rows[0]?.fee_percent ?? feePercent);
+        if (!rule.rowCount) throw new Error("FEE_RULE_REQUIRED");
+        feePercent = Number(rule.rows[0].fee_percent);
       }
+      const customerAssumesFee = body.customerAssumesFee === true && feePercent > 0;
+      if (customerAssumesFee && feePercent >= 100) throw new Error("INVALID_FEE");
+      const baseTotal = Number(current.rows[0].total_value);
+      const chargedTotal = Math.round((customerAssumesFee ? baseTotal / (1 - feePercent / 100) : baseTotal) * 100) / 100;
+      const feeAmount = Math.round(chargedTotal * feePercent) / 100;
       saleFinance = {
         entryAmount: Math.round(entryAmount * 100) / 100,
         installmentCount,
@@ -159,6 +171,9 @@ export async function PATCH(
         financialAccountId,
         methodName: method.rows[0].name,
         feePercent,
+        customerAssumesFee,
+        chargedTotal,
+        feeAmount,
       };
     }
     if (enteringSale || leavingSale) {
@@ -223,8 +238,10 @@ export async function PATCH(
         `DELETE FROM app_live.receivables WHERE work_order_id=$1::uuid AND payment_date IS NULL AND notes LIKE 'Gerado automaticamente na conclusão da venda%'`,
         [id],
       );
-      const totalCents = cents(Number(current.rows[0].total_value));
-      const entryCents = cents(saleFinance!.entryAmount);
+      const totalCents = cents(saleFinance!.chargedTotal);
+      const entryCents = cents(saleFinance!.customerAssumesFee && saleFinance!.feePercent > 0
+        ? saleFinance!.entryAmount / (1 - saleFinance!.feePercent / 100)
+        : saleFinance!.entryAmount);
       const remainingCents = totalCents - entryCents;
       const obligations = [
         ...(entryCents > 0
@@ -257,7 +274,7 @@ export async function PATCH(
         const amount = item.amount / 100;
         const fee = Math.round(amount * saleFinance!.feePercent) / 100;
         await client.query(
-          `INSERT INTO app_live.receivables(company_id,work_order_id,customer_id,customer_name,issue_date,competence_date,due_date,amount,original_amount,open_amount,status,installment_number,installment_count,payment_method_id,financial_account_id,fee_percent,fee_amount,net_amount,notes) VALUES($1::uuid,$2::uuid,$3::uuid,$4,CURRENT_DATE,CURRENT_DATE,$5::date,$6,$6,$6,'PENDENTE',$7,$8,$9::uuid,$10::uuid,$11,$12,$13,$14)`,
+          `INSERT INTO app_live.receivables(company_id,work_order_id,customer_id,customer_name,issue_date,competence_date,due_date,amount,original_amount,open_amount,status,installment_number,installment_count,payment_method_id,financial_account_id,fee_percent,fee_amount,net_amount,customer_assumes_fee,notes) VALUES($1::uuid,$2::uuid,$3::uuid,$4,CURRENT_DATE,CURRENT_DATE,$5::date,$6,$6,$6,'PENDENTE',$7,$8,$9::uuid,$10::uuid,$11,$12,$13,$14,$15)`,
           [
             scope.companyId,
             id,
@@ -272,13 +289,14 @@ export async function PATCH(
             saleFinance!.feePercent,
             fee,
             Math.round((amount - fee) * 100) / 100,
+            saleFinance!.customerAssumesFee,
             `Gerado automaticamente na conclusão da venda — ${item.label}`,
           ],
         );
       }
       const categories = await client.query(
         `SELECT system_code,id FROM app_live.financial_categories
-         WHERE company_id=$1::uuid AND system_code IN ('SALES','COGS')`,
+         WHERE company_id=$1::uuid AND system_code IN ('SALES','COGS','PAYMENT_FEES')`,
         [scope.companyId],
       );
       const categoryIds = Object.fromEntries(
@@ -297,7 +315,7 @@ export async function PATCH(
           categoryIds.SALES ?? null,
           eventDate,
           `Venda ${current.rows[0].customer_name}`,
-          current.rows[0].total_value,
+          saleFinance!.chargedTotal,
         ],
       );
       await client.query(
@@ -315,6 +333,15 @@ export async function PATCH(
           Math.round(saleCost * 100) / 100,
         ],
       );
+      if (saleFinance!.feeAmount > 0) {
+        await client.query(
+          `INSERT INTO app_live.financial_events
+           (company_id,event_key,event_type,source_type,source_id,category_id,competence_date,cash_date,description,amount,affects_drg)
+           VALUES ($1::uuid,$2,'DESPESA','WORK_ORDER',$3::uuid,$4::uuid,$5::date,$5::date,$6,$7,true)
+           ON CONFLICT (company_id,event_key) DO UPDATE SET category_id=EXCLUDED.category_id,competence_date=EXCLUDED.competence_date,cash_date=EXCLUDED.cash_date,description=EXCLUDED.description,amount=EXCLUDED.amount,reversed_at=NULL`,
+          [scope.companyId,`sale:${id}:payment-fee`,id,categoryIds.PAYMENT_FEES??null,eventDate,`Taxa de Máquina de Cartão - ${current.rows[0].customer_name}`,saleFinance!.feeAmount],
+        );
+      }
     } else if (leavingSale) {
       await client.query(
         `UPDATE app_live.receivables SET status='CANCELADO',cancelled_at=now(),open_amount=0
@@ -353,7 +380,7 @@ export async function PATCH(
     );
     if (enteringSale)
       await client.query(
-        `UPDATE app_live.work_orders SET entry_amount=$2,installment_count=$3,first_due_date=$4::date,payment_method_id=$5::uuid,financial_account_id=$6::uuid,payment_method=$7,payment_fee_percent=$8,payment_fee_amount=ROUND(total_value*$8/100,2) WHERE id=$1::uuid`,
+        `UPDATE app_live.work_orders SET entry_amount=$2,installment_count=$3,first_due_date=$4::date,payment_method_id=$5::uuid,financial_account_id=$6::uuid,payment_method=$7,payment_fee_percent=$8,payment_fee_amount=$9,customer_assumes_payment_fee=$10,charged_total=$11 WHERE id=$1::uuid`,
         [
           id,
           saleFinance!.entryAmount,
@@ -363,6 +390,9 @@ export async function PATCH(
           saleFinance!.financialAccountId,
           saleFinance!.methodName,
           saleFinance!.feePercent,
+          saleFinance!.feeAmount,
+          saleFinance!.customerAssumesFee,
+          saleFinance!.chargedTotal,
         ],
       );
 
@@ -419,6 +449,16 @@ export async function PATCH(
     if (error instanceof Error && error.message === "INSTALLMENTS_NOT_ALLOWED")
       return NextResponse.json(
         { error: "A forma de pagamento selecionada não permite parcelamento." },
+        { status: 400 },
+      );
+    if (error instanceof Error && error.message === "FEE_RULE_REQUIRED")
+      return NextResponse.json(
+        { error: "Não existe taxa cadastrada para a quantidade de parcelas selecionada." },
+        { status: 400 },
+      );
+    if (error instanceof Error && error.message === "INVALID_FEE")
+      return NextResponse.json(
+        { error: "A taxa cadastrada precisa ser menor que 100%." },
         { status: 400 },
       );
     return NextResponse.json(

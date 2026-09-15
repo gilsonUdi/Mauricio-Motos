@@ -25,6 +25,8 @@ export const registryListSql: Record<RegistryEntity, string> = {
     SELECT p.id::text,p.name,p.type,p.cost_price,p.sale_price,p.profit_margin_percent,
            p.current_stock,p.active,p.updated_at,p.sku,p.barcode,p.item_kind,p.ncm,p.cest,
            p.fiscal_origin,p.commercial_unit,p.default_cfop,p.tax_code,p.tax_rate,p.brand,
+           p.ibs_cbs_cst,p.ibs_cbs_classification,p.ibs_state_rate,p.ibs_municipal_rate,p.cbs_rate,
+           p.selective_tax_cst,p.selective_tax_classification,p.selective_tax_rate,p.nbs_code,p.service_code,
            p.supplier_id::text,s.name AS supplier_name,p.minimum_stock,p.lead_time_days,p.stock_location
     FROM app_live.products p LEFT JOIN app_live.suppliers s ON s.id=p.supplier_id AND s.company_id=p.company_id
     WHERE p.company_id=$1::uuid ORDER BY p.active DESC,p.name`,
@@ -60,6 +62,11 @@ export function mapRegistryRecord(entity: RegistryEntity, row: Record<string, un
     sku: row.sku, barcode: row.barcode, itemKind: row.item_kind, ncm: row.ncm, cest: row.cest,
     fiscalOrigin: row.fiscal_origin, commercialUnit: row.commercial_unit, defaultCfop: row.default_cfop,
     taxCode: row.tax_code, taxRate: Number(row.tax_rate ?? 0), brand: row.brand,
+    ibsCbsCst: row.ibs_cbs_cst, ibsCbsClassification: row.ibs_cbs_classification,
+    ibsStateRate: Number(row.ibs_state_rate ?? 0), ibsMunicipalRate: Number(row.ibs_municipal_rate ?? 0),
+    cbsRate: Number(row.cbs_rate ?? 0), selectiveTaxCst: row.selective_tax_cst,
+    selectiveTaxClassification: row.selective_tax_classification,
+    selectiveTaxRate: Number(row.selective_tax_rate ?? 0), nbsCode: row.nbs_code, serviceCode: row.service_code,
     supplierId: row.supplier_id, supplierName: row.supplier_name,
     minimumStock: Number(row.minimum_stock ?? 0), leadTimeDays: Number(row.lead_time_days ?? 0), stockLocation: row.stock_location,
   };

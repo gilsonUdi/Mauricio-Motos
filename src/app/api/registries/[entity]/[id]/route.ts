@@ -79,9 +79,11 @@ export async function PATCH(request: Request, context: Context) {
       updated = await client.query(
         `UPDATE app_live.products SET name=$2,type=$3,cost_price=$4,sale_price=$5,profit_margin_percent=$6,current_stock=$7,active=$8,
          sku=$9,barcode=$10,item_kind=$11,ncm=$12,cest=$13,fiscal_origin=$14,commercial_unit=COALESCE($15,'UN'),default_cfop=$16,
-         tax_code=$17,tax_rate=$18,brand=$19,supplier_id=$20::uuid,minimum_stock=$21,lead_time_days=$22,stock_location=$23
-         WHERE id=$1::uuid AND company_id=$24::uuid RETURNING *`,
-        [id,name,cleanText(body.type),cost,sale,margin,numberValue(body.stock),booleanValue(body.active),cleanText(body.sku),cleanText(body.barcode),body.itemKind==="SERVICO"?"SERVICO":"PRODUTO",cleanText(body.ncm),cleanText(body.cest),cleanText(body.fiscalOrigin),cleanText(body.commercialUnit),cleanText(body.defaultCfop),cleanText(body.taxCode),Math.max(0,numberValue(body.taxRate)),cleanText(body.brand),supplierId,Math.max(0,numberValue(body.minimumStock)),Math.max(0,Math.trunc(numberValue(body.leadTimeDays))),cleanText(body.stockLocation),scope.companyId],
+         tax_code=$17,tax_rate=$18,brand=$19,supplier_id=$20::uuid,minimum_stock=$21,lead_time_days=$22,stock_location=$23,
+         ibs_cbs_cst=$24,ibs_cbs_classification=$25,ibs_state_rate=$26,ibs_municipal_rate=$27,cbs_rate=$28,
+         selective_tax_cst=$29,selective_tax_classification=$30,selective_tax_rate=$31,nbs_code=$32,service_code=$33
+         WHERE id=$1::uuid AND company_id=$34::uuid RETURNING *`,
+        [id,name,cleanText(body.type),cost,sale,margin,numberValue(body.stock),booleanValue(body.active),cleanText(body.sku),cleanText(body.barcode),body.itemKind==="SERVICO"?"SERVICO":"PRODUTO",cleanText(body.ncm),cleanText(body.cest),cleanText(body.fiscalOrigin),cleanText(body.commercialUnit),cleanText(body.defaultCfop),cleanText(body.taxCode),Math.max(0,numberValue(body.taxRate)),cleanText(body.brand),supplierId,Math.max(0,numberValue(body.minimumStock)),Math.max(0,Math.trunc(numberValue(body.leadTimeDays))),cleanText(body.stockLocation),cleanText(body.ibsCbsCst),cleanText(body.ibsCbsClassification),Math.max(0,numberValue(body.ibsStateRate)),Math.max(0,numberValue(body.ibsMunicipalRate)),Math.max(0,numberValue(body.cbsRate)),cleanText(body.selectiveTaxCst),cleanText(body.selectiveTaxClassification),Math.max(0,numberValue(body.selectiveTaxRate)),cleanText(body.nbsCode),cleanText(body.serviceCode),scope.companyId],
       );
       updated.rows[0].supplier_name=supplierId?(await client.query(`SELECT name FROM app_live.suppliers WHERE id=$1::uuid`,[supplierId])).rows[0]?.name:null;
     } else if (entity === "suppliers") {

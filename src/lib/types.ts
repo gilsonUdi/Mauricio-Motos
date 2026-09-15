@@ -54,6 +54,7 @@ export type SaleFinancialConfig = {
   firstDueDate: string;
   paymentMethodId: string;
   financialAccountId: string;
+  customerAssumesFee: boolean;
 };
 
 export type BudgetApprovalConfig = {

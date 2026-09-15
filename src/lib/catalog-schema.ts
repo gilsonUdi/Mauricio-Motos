@@ -48,6 +48,16 @@ ALTER TABLE app_live.products ADD COLUMN IF NOT EXISTS commercial_unit text NOT 
 ALTER TABLE app_live.products ADD COLUMN IF NOT EXISTS default_cfop text;
 ALTER TABLE app_live.products ADD COLUMN IF NOT EXISTS tax_code text;
 ALTER TABLE app_live.products ADD COLUMN IF NOT EXISTS tax_rate numeric(8,4) NOT NULL DEFAULT 0;
+ALTER TABLE app_live.products ADD COLUMN IF NOT EXISTS ibs_cbs_cst text;
+ALTER TABLE app_live.products ADD COLUMN IF NOT EXISTS ibs_cbs_classification text;
+ALTER TABLE app_live.products ADD COLUMN IF NOT EXISTS ibs_state_rate numeric(8,4) NOT NULL DEFAULT 0;
+ALTER TABLE app_live.products ADD COLUMN IF NOT EXISTS ibs_municipal_rate numeric(8,4) NOT NULL DEFAULT 0;
+ALTER TABLE app_live.products ADD COLUMN IF NOT EXISTS cbs_rate numeric(8,4) NOT NULL DEFAULT 0;
+ALTER TABLE app_live.products ADD COLUMN IF NOT EXISTS selective_tax_cst text;
+ALTER TABLE app_live.products ADD COLUMN IF NOT EXISTS selective_tax_classification text;
+ALTER TABLE app_live.products ADD COLUMN IF NOT EXISTS selective_tax_rate numeric(8,4) NOT NULL DEFAULT 0;
+ALTER TABLE app_live.products ADD COLUMN IF NOT EXISTS nbs_code text;
+ALTER TABLE app_live.products ADD COLUMN IF NOT EXISTS service_code text;
 ALTER TABLE app_live.products ADD COLUMN IF NOT EXISTS brand text;
 ALTER TABLE app_live.products ADD COLUMN IF NOT EXISTS supplier_id uuid REFERENCES app_live.suppliers(id) ON DELETE SET NULL;
 ALTER TABLE app_live.products ADD COLUMN IF NOT EXISTS minimum_stock numeric(14,3) NOT NULL DEFAULT 0;

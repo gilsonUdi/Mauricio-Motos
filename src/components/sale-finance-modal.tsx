@@ -16,6 +16,7 @@ type PaymentMethod = {
   id: string;
   name: string;
   supportsInstallments: boolean;
+  maximumInstallments: number;
   variableFee: boolean;
   defaultFeePercent: number;
   defaultAccountId?: string;
@@ -50,6 +51,7 @@ export function SaleFinanceModal({
   const [firstDueDate, setFirstDueDate] = useState(today);
   const [methodId, setMethodId] = useState("");
   const [accountId, setAccountId] = useState("");
+  const [customerAssumesFee, setCustomerAssumesFee] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -88,13 +90,29 @@ export function SaleFinanceModal({
       )?.feePercent ?? method.defaultFeePercent
     );
   }, [installments, method]);
-  const feeAmount = (order.total * feePercent) / 100;
+  const chargeTotal = customerAssumesFee && feePercent > 0 && feePercent < 100
+    ? order.total / (1 - feePercent / 100)
+    : order.total;
+  const chargedBalance = customerAssumesFee && feePercent > 0 && feePercent < 100
+    ? balance / (1 - feePercent / 100)
+    : balance;
+  const feeAmount = chargeTotal * feePercent / 100;
+  const netAmount = chargeTotal - feeAmount;
+  const allowedInstallments = useMemo(() => {
+    const maximum = method?.supportsInstallments ? Math.max(1, method.maximumInstallments || 1) : 1;
+    return Array.from({ length: maximum }, (_, index) => index + 1).filter((count) =>
+      !method?.variableFee || method.rules.some((rule) => count >= rule.minimumInstallments && (rule.maximumInstallments === null || count <= rule.maximumInstallments))
+    );
+  }, [method]);
 
   function chooseMethod(value: string) {
     const selected = options.methods.find((item) => item.id === value);
     setMethodId(value);
     if (selected?.defaultAccountId) setAccountId(selected.defaultAccountId);
-    if (selected && !selected.supportsInstallments) setInstallments(1);
+    const nextAllowed = selected?.supportsInstallments
+      ? Array.from({ length: Math.max(1, selected.maximumInstallments || 1) }, (_, index) => index + 1).filter((count) => !selected.variableFee || selected.rules.some((rule) => count >= rule.minimumInstallments && (rule.maximumInstallments === null || count <= rule.maximumInstallments)))
+      : [1];
+    setInstallments(nextAllowed[0] ?? 1);
   }
 
   async function submit(event: FormEvent) {
@@ -110,6 +128,7 @@ export function SaleFinanceModal({
         firstDueDate,
         paymentMethodId: methodId,
         financialAccountId: accountId,
+        customerAssumesFee,
       });
     } catch (caught) {
       setError(
@@ -156,26 +175,14 @@ export function SaleFinanceModal({
                 <MoneyInput value={entry} onValueChange={setEntry} />
               </label>
               <label className="field">
-                <span>Saldo a parcelar</span>
-                <input value={money.format(balance)} disabled />
+                <span>{customerAssumesFee ? "Saldo a parcelar na maquininha" : "Saldo a parcelar"}</span>
+                <input value={money.format(customerAssumesFee ? chargedBalance : balance)} disabled />
               </label>
               <label className="field">
                 <span>Número de parcelas</span>
-                <input
-                  type="number"
-                  min="1"
-                  max="120"
-                  value={installments}
-                  disabled={method ? !method.supportsInstallments : false}
-                  onChange={(event) =>
-                    setInstallments(
-                      Math.max(
-                        1,
-                        Math.min(120, Number(event.target.value) || 1),
-                      ),
-                    )
-                  }
-                />
+                <select value={installments} onChange={(event) => setInstallments(Number(event.target.value))} disabled={allowedInstallments.length <= 1}>
+                  {allowedInstallments.map((count) => <option value={count} key={count}>{count}x</option>)}
+                </select>
               </label>
               <label className="field">
                 <span>Primeiro vencimento</span>
@@ -217,12 +224,18 @@ export function SaleFinanceModal({
                 </select>
               </label>
             </div>
+            {feePercent > 0 && (
+              <label className="checkbox-field sale-fee-payer">
+                <input type="checkbox" checked={customerAssumesFee} onChange={(event) => setCustomerAssumesFee(event.target.checked)} />
+                <span>Repassar a taxa da maquininha ao cliente</span>
+              </label>
+            )}
             <div className="sale-finance-summary">
               <span>
                 <small>Parcelas</small>
                 <b>
                   {installments}x de{" "}
-                  {money.format(installments ? balance / installments : 0)}
+                  {money.format(installments ? chargedBalance / installments : 0)}
                 </b>
               </span>
               <span>
@@ -233,10 +246,11 @@ export function SaleFinanceModal({
                 </b>
               </span>
               <span>
-                <small>Líquido estimado</small>
-                <b>{money.format(order.total - feeAmount)}</b>
+                <small>{customerAssumesFee ? "Valor na maquininha" : "Líquido estimado"}</small>
+                <b>{money.format(customerAssumesFee ? chargeTotal : netAmount)}</b>
               </span>
             </div>
+            {customerAssumesFee && feePercent > 0 && <p className="payment-callout fee-warning"><WalletCards/><span><b>Cobrar {money.format(chargeTotal)} do cliente.</b><br/>Após a taxa, a empresa recebe {money.format(order.total)} líquidos.</span></p>}
             {!options.methods.length && (
               <p className="form-error">
                 Cadastre uma forma de pagamento antes de concluir a venda.

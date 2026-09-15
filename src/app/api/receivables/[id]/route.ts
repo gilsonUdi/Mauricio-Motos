@@ -62,7 +62,6 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
          VALUES ($1::uuid,$2,'RECEBIMENTO','RECEIVABLE_PAYMENT',$3::uuid,COALESCE($4::date,CURRENT_DATE),COALESCE($4::date,CURRENT_DATE),$5,$6,false)`,
         [scope.companyId,`receivable-payment:${paymentId}:receipt`,paymentId,paymentDate,`Recebimento - ${row.customer_name}`,receivedAmount],
       );
-      if(feeAmount>0){const category=await client.query(`SELECT id FROM app_live.financial_categories WHERE company_id=$1::uuid AND system_code='PAYMENT_FEES'`,[scope.companyId]);await client.query(`INSERT INTO app_live.financial_events(company_id,event_key,event_type,source_type,source_id,category_id,competence_date,cash_date,description,amount,affects_drg) VALUES($1::uuid,$2,'DESPESA','RECEIVABLE_PAYMENT',$3::uuid,$4::uuid,COALESCE($5::date,CURRENT_DATE),COALESCE($5::date,CURRENT_DATE),$6,$7,true)`,[scope.companyId,`receivable-payment:${paymentId}:fee`,paymentId,category.rows[0]?.id??null,paymentDate,`Taxa de ${method} - ${row.customer_name}`,feeAmount]);}
     } else {
       const payments=await client.query(`UPDATE app_live.receivable_payments SET reversed_at=now() WHERE receivable_id=$1::uuid AND reversed_at IS NULL RETURNING id`,[id]);
       await client.query(`UPDATE app_live.receivables SET payment_date=NULL,open_amount=COALESCE(original_amount,amount),status='PENDENTE' WHERE id=$1::uuid`, [id]);

@@ -21,7 +21,7 @@ export async function GET() {
         [scope.companyId],
       ),
       pool.query(
-        `SELECT id::text,name,supports_installments,variable_fee,default_fee_percent,default_account_id::text FROM app_live.payment_methods WHERE company_id=$1::uuid AND active ORDER BY name`,
+        `SELECT id::text,name,supports_installments,maximum_installments,variable_fee,default_fee_percent,default_account_id::text FROM app_live.payment_methods WHERE company_id=$1::uuid AND active ORDER BY name`,
         [scope.companyId],
       ),
       pool.query(
@@ -35,6 +35,7 @@ export async function GET() {
         id: row.id,
         name: row.name,
         supportsInstallments: row.supports_installments,
+        maximumInstallments: Number(row.maximum_installments ?? 1),
         variableFee: row.variable_fee,
         defaultFeePercent: Number(row.default_fee_percent),
         defaultAccountId: row.default_account_id,
