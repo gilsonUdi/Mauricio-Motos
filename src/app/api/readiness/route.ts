@@ -9,7 +9,7 @@ const checklist=[
   {key:"opening_balances",category:"DADOS",label:"Saldos financeiros iniciais conferidos",description:"Valide caixa, bancos, contas a pagar e contas a receber."},
   {key:"inventory_balances",category:"DADOS",label:"Estoque físico confrontado com o sistema",description:"Registre e justifique os ajustes antes do corte."},
   {key:"migration_reviewed",category:"DADOS",label:"Pendências da migração histórica revisadas",description:"Use a reconciliação do AppSheet e documente exceções aceitas."},
-  {key:"sale_flow_tested",category:"TESTES",label:"Fluxo completo de venda testado",description:"Orçamento, aprovação, estoque, CMV, parcelas e recebimento."},
+  {key:"sale_flow_tested",category:"TESTES",label:"Fluxo completo de venda testado",description:"Orçamento, aprovação, estoque, CMV, entrada, parcelas, taxas, recebimento e repasse da taxa ao cliente."},
   {key:"purchase_flow_tested",category:"TESTES",label:"Fluxo completo de compra testado",description:"Compra, custo médio, estoque, obrigação e pagamento."},
   {key:"reversal_flow_tested",category:"TESTES",label:"Cancelamentos e estornos testados",description:"Confirme que estoque e financeiro são revertidos sem duplicidade."},
   {key:"mobile_desktop_tested",category:"TESTES",label:"Uso validado em celular e computador",description:"Teste as telas principais nos equipamentos realmente usados pela oficina."},
@@ -33,19 +33,33 @@ export async function GET(){
         (SELECT count(*)::integer FROM app_live.financial_categories WHERE company_id=$1::uuid AND active) AS categories,
         (SELECT count(*)::integer FROM app_live.customers WHERE company_id=$1::uuid) AS customers,
         (SELECT count(*)::integer FROM app_live.products WHERE company_id=$1::uuid AND active) AS products,
-        (SELECT count(*)::integer FROM app_live.products WHERE company_id=$1::uuid AND current_stock<0) AS negative_stock,
-        (SELECT count(*)::integer FROM app_live.work_orders o WHERE o.company_id=$1::uuid AND o.status='VENDA_REALIZADA' AND o.financial_generated_at IS NOT NULL AND (NOT EXISTS(SELECT 1 FROM app_live.receivables r WHERE r.work_order_id=o.id AND r.status<>'CANCELADO') OR NOT EXISTS(SELECT 1 FROM app_live.financial_events e WHERE e.source_type='WORK_ORDER' AND e.source_id=o.id AND e.event_type='RECEITA_VENDA' AND e.reversed_at IS NULL))) AS broken_sales,
+        (SELECT count(*)::integer FROM app_live.products p WHERE p.company_id=$1::uuid AND p.current_stock<0 AND NOT EXISTS (
+          SELECT 1 FROM app_live.work_orders o CROSS JOIN LATERAL jsonb_array_elements(COALESCE(o.stock_override_snapshot,'[]'::jsonb)) item
+          WHERE o.company_id=p.company_id AND o.status='VENDA_REALIZADA' AND o.stock_override_used AND item->>'productId'=p.id::text
+        )) AS unauthorized_negative_stock,
+        (SELECT count(*)::integer FROM app_live.products p WHERE p.company_id=$1::uuid AND p.current_stock<0 AND EXISTS (
+          SELECT 1 FROM app_live.work_orders o CROSS JOIN LATERAL jsonb_array_elements(COALESCE(o.stock_override_snapshot,'[]'::jsonb)) item
+          WHERE o.company_id=p.company_id AND o.status='VENDA_REALIZADA' AND o.stock_override_used AND item->>'productId'=p.id::text
+        )) AS authorized_negative_stock,
+        (SELECT count(*)::integer FROM app_live.work_orders o WHERE o.company_id=$1::uuid AND o.status='VENDA_REALIZADA' AND o.financial_generated_at IS NOT NULL AND (
+          ABS(COALESCE(o.charged_total,o.total_value)-COALESCE((SELECT SUM(r.original_amount) FROM app_live.receivables r WHERE r.work_order_id=o.id AND r.status<>'CANCELADO'),0))>0.01
+          OR ABS(COALESCE(o.payment_fee_amount,0)-COALESCE((SELECT SUM(r.fee_amount) FROM app_live.receivables r WHERE r.work_order_id=o.id AND r.status<>'CANCELADO'),0))>0.05
+          OR ABS((COALESCE(o.charged_total,o.total_value)-COALESCE(o.payment_fee_amount,0))-COALESCE((SELECT SUM(COALESCE(r.net_amount,r.original_amount-r.fee_amount)) FROM app_live.receivables r WHERE r.work_order_id=o.id AND r.status<>'CANCELADO'),0))>0.05
+          OR ABS(COALESCE(o.charged_total,o.total_value)-COALESCE((SELECT MAX(e.amount) FROM app_live.financial_events e WHERE e.company_id=o.company_id AND e.source_type='WORK_ORDER' AND e.source_id=o.id AND e.event_type='RECEITA_VENDA' AND e.reversed_at IS NULL),0))>0.01
+          OR ABS(COALESCE(o.payment_fee_amount,0)-COALESCE((SELECT MAX(e.amount) FROM app_live.financial_events e JOIN app_live.financial_categories c ON c.id=e.category_id AND c.company_id=e.company_id AND c.system_code='PAYMENT_FEES' WHERE e.company_id=o.company_id AND e.source_type='WORK_ORDER' AND e.source_id=o.id AND e.event_key=concat('sale:',o.id,':payment-fee') AND e.reversed_at IS NULL),0))>0.01
+        )) AS broken_sales,
         (SELECT count(*)::integer FROM app_live.purchases p WHERE p.company_id=$1::uuid AND p.status='CONFIRMADA' AND NOT EXISTS(SELECT 1 FROM app_live.accounts_payable a WHERE a.purchase_id=p.id AND a.status<>'CANCELADO')) AS broken_purchases`,[scope.companyId]),
       pool.query(`SELECT c.item_key,c.completed,c.notes,c.completed_at,u.name AS completed_by_name FROM app_live.go_live_checklist c LEFT JOIN app_live.app_users u ON u.id=c.completed_by WHERE c.company_id=$1::uuid`,[scope.companyId]),
     ]);
-    const row=counts.rows[0];const operationalIssues=Number(row.negative_stock)+Number(row.broken_sales)+Number(row.broken_purchases);
+    const row=counts.rows[0];const operationalIssues=Number(row.unauthorized_negative_stock)+Number(row.broken_sales)+Number(row.broken_purchases);
     const automatic=[
       {key:"database",label:"Conexão com PostgreSQL",status:"OK",detail:`Resposta em ${Date.now()-started} ms`},
       {key:"authentication",label:"Autenticação do portal",status:process.env.AUTH_SECRET&&process.env.DATABASE_URL?"OK":"ERRO",detail:process.env.AUTH_SECRET&&process.env.DATABASE_URL?"Credenciais do backend configuradas":"Variáveis obrigatórias ausentes"},
       {key:"administrators",label:"Administrador da empresa",status:Number(row.admins)>0?"OK":"ERRO",detail:`${row.admins} administrador(es) ativo(s)`},
       {key:"financial_setup",label:"Configuração financeira",status:Number(row.accounts)>0&&Number(row.methods)>0&&Number(row.categories)>0?"OK":"ATENCAO",detail:`${row.accounts} conta(s), ${row.methods} forma(s) e ${row.categories} categoria(s)`},
       {key:"catalogs",label:"Cadastros operacionais",status:Number(row.customers)>0&&Number(row.products)>0?"OK":"ATENCAO",detail:`${row.customers} cliente(s) e ${row.products} produto(s) ativo(s)`},
-      {key:"integrity",label:"Integridade operacional básica",status:operationalIssues===0?"OK":"ERRO",detail:operationalIssues===0?"Nenhuma falha crítica básica":"Há ocorrências na área de Conferência"},
+      {key:"integrity",label:"Integridade operacional e financeira",status:operationalIssues===0?"OK":"ERRO",detail:operationalIssues===0?"Vendas, taxas, estoque e compras sem falhas críticas":`${operationalIssues} registro(s) crítico(s) na área de Conferência`},
+      {key:"authorized_stock",label:"Vendas autorizadas sem estoque",status:Number(row.authorized_negative_stock)>0?"ATENCAO":"OK",detail:Number(row.authorized_negative_stock)>0?`${row.authorized_negative_stock} produto(s) aguardando reposição após autorização`:"Nenhuma exceção autorizada aguardando reposição"},
     ];
     const savedByKey=new Map(saved.rows.map(item=>[item.item_key,item]));const items=checklist.map(item=>({...item,...(savedByKey.get(item.key)??{completed:false,notes:null,completed_at:null,completed_by_name:null})}));
     const completed=items.filter(item=>item.completed).length;const automaticReady=automatic.filter(item=>item.status==="OK").length;
