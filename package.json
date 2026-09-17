@@ -12,7 +12,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --test tests/**/*.test.ts"
+    "test": "tsx --test tests/**/*.test.ts",
+    "migrate": "tsx scripts/migrate.ts"
   },
   "dependencies": {
     "@types/pg": "^8.20.0",

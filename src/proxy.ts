@@ -26,6 +26,9 @@ const rules: Array<[RegExp, Permission]> = [
 export function proxy(request: NextRequest) {
   if (!process.env.AUTH_SECRET || !process.env.DATABASE_URL) return NextResponse.next();
   const path = request.nextUrl.pathname;
+  // A sonda de disponibilidade precisa responder sem sessão: ela é chamada pelo
+  // monitor externo e nunca devolve dados da operação.
+  if (path === "/api/health") return NextResponse.next();
   if (path.startsWith("/login") || path.startsWith("/api/auth")) return NextResponse.next();
   const user = verifySessionToken(request.cookies.get(sessionCookie)?.value);
   if (!user) {

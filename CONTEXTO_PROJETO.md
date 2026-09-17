@@ -99,12 +99,30 @@ Qualquer cenário reprovado ou bloqueado deve gerar correção, novo teste e nov
   - regras e cronograma da reforma tributária.
 - Implementar primeiro em homologação, com fila, idempotência, consulta de status, cancelamento, carta de correção quando aplicável e armazenamento de XML/PDF.
 
-### 8. Operação e monitoramento pós-corte
+### 8. Operação e monitoramento pós-corte — base implementada em 17/09/2026
 
-- Configurar monitoramento de disponibilidade, erros do backend e falhas de conexão com PostgreSQL.
-- Confirmar rotina automática de backup e realizar testes periódicos de restauração.
-- Acompanhar auditoria, divergências da Conferência e exceções de estoque nos primeiros dias.
-- Criar rotina de atualização segura de migrations e procedimento de rollback de deploy.
+A parte de código está pronta e documentada em `OPERACAO.md`:
+
+- `GET /api/health` responde sem autenticação para o monitor externo: 200 com o
+  banco no ar e 503 quando o PostgreSQL recusa conexão ou passa de 5 s. Não
+  devolve dados da operação e registra o motivo no log com prefixo `[health]`.
+- `npm run migrate` aplica as migrations pendentes em ordem, uma transação por
+  arquivo, com checksum registrado em `app_live.schema_migrations`. Recusa rodar
+  se um arquivo já aplicado foi editado depois.
+- `npm run migrate -- --baseline` adota o controle no banco atual sem reexecutar
+  a `001_app_live.sql`, que contém a carga inicial vinda de `app_core`.
+- `OPERACAO.md` traz o roteiro de backup e teste de restauração, o procedimento
+  de rollback de deploy e a rotina de acompanhamento dos primeiros dias.
+
+Pendente, por depender de acesso ao Easypanel e ao cliente:
+
+- cadastrar `https://mauriciomotos.gsgestao.com.br/api/health` no monitor
+  externo, com alerta após duas falhas seguidas;
+- rodar `npm run migrate -- --baseline` uma única vez no banco de produção e,
+  daí em diante, chamar `npm run migrate` antes de subir a aplicação;
+- confirmar a rotina automática de backup do serviço `mauricio-motos-db` e
+  executar o primeiro teste de restauração, registrando a data no item
+  `backup_verified` da Central de Prontidão.
 
 ## Critério de conclusão do projeto
 

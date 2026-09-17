@@ -67,3 +67,5 @@ Os cadastros de clientes e fornecedores validam CPF/CNPJ no backend. A consulta 
 A migração `db/migrations/018_tax_reform_products.sql` prepara o cadastro de produtos e serviços para armazenar CST e classificação tributária do IBS/CBS, alíquotas estadual e municipal do IBS, CBS, Imposto Seletivo, NBS e código de serviço. Esses campos são cadastrais e não executam cálculo tributário automático.
 
 O cadastro manual de veículos inclui marca, modelo, anos, cor, combustível, cilindrada e município/UF. A migração `db/migrations/009_vehicle_lookup.sql` documenta os novos campos e eles também são garantidos automaticamente no primeiro acesso autenticado após o deploy.
+
+A sonda `GET /api/health` responde sem autenticação para monitores externos, devolvendo 200 com o PostgreSQL acessível e 503 quando a conexão falha. O comando `npm run migrate` aplica as migrations pendentes com registro e checksum em `app_live.schema_migrations`; use `--baseline` uma única vez para adotar o controle no banco existente. O roteiro de monitoramento, backup, restauração e rollback está em `OPERACAO.md`.
