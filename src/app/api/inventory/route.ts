@@ -32,7 +32,7 @@ export async function GET(request: Request) {
         WHERE p.company_id=$1::uuid AND p.item_kind<>'SERVICO' ORDER BY p.active DESC,p.name`,[scope.companyId,days]),
       pool.query(`
         SELECT m.id::text, m.product_id::text, p.name AS product_name, m.movement_date::text AS date,
-               m.movement_type AS type, m.quantity, m.party_name, m.balance_after
+               m.movement_type AS type, m.quantity, m.party_name, m.balance_after, m.reversed_at
         FROM app_live.inventory_movements m
         LEFT JOIN app_live.products p ON p.id=m.product_id AND p.company_id=m.company_id
         WHERE m.company_id=$1::uuid
@@ -52,7 +52,7 @@ export async function GET(request: Request) {
       periodDays:days,
       summary:{inventoryCostValue,inventorySaleValue,projectedMarginAmount:inventorySaleValue-inventoryCostValue,projectedMarginPercent:inventorySaleValue>0?(inventorySaleValue-inventoryCostValue)/inventorySaleValue*100:0,ruptures:active.filter(product=>product.health==="RUPTURA").length,imminent:active.filter(product=>product.health==="EMINENTE").length,noMovement:active.filter(product=>product.health==="SEM_GIRO").length},
       products: mappedProducts,
-      movements: movements.rows.map((row) => ({ id: row.id, productId: row.product_id, productName: row.product_name, date: row.date, type: row.type, quantity: Number(row.quantity), partyName: row.party_name, balance: row.balance_after === null ? null : Number(row.balance_after) })),
+      movements: movements.rows.map((row) => ({ id: row.id, productId: row.product_id, productName: row.product_name, date: row.date, type: row.type, quantity: Number(row.quantity), partyName: row.party_name, balance: row.balance_after === null ? null : Number(row.balance_after), reversedAt: row.reversed_at })),
     });
   } catch (error) {
     console.error("Falha ao carregar estoque", error);

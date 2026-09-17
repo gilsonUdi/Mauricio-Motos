@@ -1,6 +1,6 @@
 "use client";
 
-import { CirclePlus, LoaderCircle, Menu, PackageCheck, Plus, Save, ShoppingCart, Trash2, X } from "lucide-react";
+import { CirclePlus, LoaderCircle, Menu, PackageCheck, Plus, Save, ShoppingCart, Trash2, X, XCircle } from "lucide-react";
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -30,6 +30,7 @@ export function PurchasesPage() {
   const [items, setItems] = useState<DraftItem[]>([blankItem(1)]);
   const [nextKey, setNextKey] = useState(2);
   const [saving, setSaving] = useState(false);
+  const [cancelling, setCancelling] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [mobileMenu, setMobileMenu] = useState(false);
@@ -90,6 +91,19 @@ export function PurchasesPage() {
     finally { setSaving(false); }
   }
 
+  async function cancelPurchase(purchase: Purchase) {
+    if (!window.confirm(`Cancelar a compra de ${currency.format(purchase.total)} de ${purchase.supplier}? O estoque, o custo médio e a conta a pagar serão estornados.`)) return;
+    setCancelling(purchase.id);setError("");setNotice("");
+    try {
+      const response=await fetch(`/api/purchases/${purchase.id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"CANCEL"})});
+      const payload=await response.json();
+      if(!response.ok)throw new Error(payload.error??"Não foi possível cancelar a compra.");
+      await load();
+      setNotice("Compra cancelada. Estoque, custo médio e obrigação financeira foram estornados.");
+    }catch(caught){setError(caught instanceof Error?caught.message:"Não foi possível cancelar a compra.");}
+    finally{setCancelling("");}
+  }
+
   return <div className="app-shell">
     <AppSidebar active="compras" />
     <main className="workspace registry-workspace">
@@ -106,7 +120,7 @@ export function PurchasesPage() {
       </section>
       <section className="registry-panel">
         <div className="operations-title"><div><span className="section-kicker">HISTÓRICO</span><h2>Compras registradas</h2></div><span>{purchases.length} lançamento(s)</span></div>
-        {loading ? <div className="registry-loading"><LoaderCircle className="spin" /> Carregando compras...</div> : error && !purchases.length ? <div className="empty-state">{error}</div> : <div className="registry-table-wrap"><table className="registry-table"><thead><tr><th>Data</th><th>Fornecedor</th><th>Produtos</th><th>Quantidade</th><th>Total</th></tr></thead><tbody>{purchases.map((purchase) => <tr key={purchase.id}><td data-label="Data">{purchase.date ? dateFormatter.format(new Date(`${purchase.date}T00:00:00Z`)) : "—"}</td><td data-label="Fornecedor"><strong>{purchase.supplier}</strong></td><td data-label="Produtos">{purchase.itemCount}</td><td data-label="Quantidade">{purchase.totalQuantity.toLocaleString("pt-BR")}</td><td data-label="Total"><strong>{currency.format(purchase.total)}</strong></td></tr>)}</tbody></table>{!purchases.length && <div className="empty-state">Nenhuma compra registrada pelo novo sistema.</div>}</div>}
+        {error&&<p className="form-error">{error}</p>}{loading ? <div className="registry-loading"><LoaderCircle className="spin" /> Carregando compras...</div> : error && !purchases.length ? <div className="empty-state">{error}</div> : <div className="registry-table-wrap"><table className="registry-table"><thead><tr><th>Data</th><th>Fornecedor</th><th>Produtos</th><th>Quantidade</th><th>Total</th><th>Ações</th></tr></thead><tbody>{purchases.map((purchase) => <tr key={purchase.id}><td data-label="Data">{purchase.date ? dateFormatter.format(new Date(`${purchase.date}T00:00:00Z`)) : "—"}</td><td data-label="Fornecedor"><strong>{purchase.supplier}</strong></td><td data-label="Produtos">{purchase.itemCount}</td><td data-label="Quantidade">{purchase.totalQuantity.toLocaleString("pt-BR")}</td><td data-label="Total"><strong>{currency.format(purchase.total)}</strong></td><td data-label="Ações"><button className="action-button danger" disabled={Boolean(cancelling)} onClick={()=>cancelPurchase(purchase)}>{cancelling===purchase.id?<LoaderCircle className="spin" size={16}/>:<XCircle size={16}/>}Cancelar</button></td></tr>)}</tbody></table>{!purchases.length && <div className="empty-state">Nenhuma compra registrada pelo novo sistema.</div>}</div>}
       </section>
     </main>
     {showForm && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setShowForm(false)}><section className="order-modal" role="dialog" aria-modal="true" aria-labelledby="purchase-title"><header className="modal-header"><div><span className="section-kicker">ESTOQUE</span><h2 id="purchase-title">Nova compra</h2></div><button className="icon-button" onClick={() => setShowForm(false)} aria-label="Fechar"><X /></button></header><form className="order-form" onSubmit={save}>
