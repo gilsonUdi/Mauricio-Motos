@@ -2,6 +2,8 @@
 
 Aplicação web para substituir gradualmente o AppSheet da oficina, preservando os dados históricos no PostgreSQL. Inclui atendimento e orçamentos, compras e estoque com custo médio, contas a pagar e receber, DRG gerencial, cadastros multiempresa e relatórios operacionais.
 
+O estado atual, as decisões já tomadas e as etapas ainda pendentes estão consolidados em [`CONTEXTO_PROJETO.md`](./CONTEXTO_PROJETO.md).
+
 ## Primeiro módulo
 
 - painel de gestão de atendimento;
