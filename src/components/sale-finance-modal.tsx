@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { SaleFinancialConfig, StockShortage, WorkOrder } from "@/lib/types";
 import { MoneyInput } from "@/components/money-input";
 import { parseBrazilianNumber } from "@/lib/numbers";
+import { allowedInstallmentCounts, calculateCardAmounts, feePercentForInstallments } from "@/lib/financial-calculations";
 
 type Account = { id: string; name: string };
 type FeeRule = {
@@ -80,40 +81,17 @@ export function SaleFinanceModal({
   const method = options.methods.find((item) => item.id === methodId);
   const entryAmount = Math.max(0, parseBrazilianNumber(entry));
   const balance = Math.max(0, order.total - entryAmount);
-  const feePercent = useMemo(() => {
-    if (!method) return 0;
-    if (!method.variableFee) return method.defaultFeePercent;
-    return (
-      method.rules.find(
-        (rule) =>
-          installments >= rule.minimumInstallments &&
-          (rule.maximumInstallments === null ||
-            installments <= rule.maximumInstallments),
-      )?.feePercent ?? method.defaultFeePercent
-    );
-  }, [installments, method]);
-  const chargeTotal = customerAssumesFee && feePercent > 0 && feePercent < 100
-    ? order.total / (1 - feePercent / 100)
-    : order.total;
-  const chargedBalance = customerAssumesFee && feePercent > 0 && feePercent < 100
-    ? balance / (1 - feePercent / 100)
-    : balance;
-  const feeAmount = chargeTotal * feePercent / 100;
-  const netAmount = chargeTotal - feeAmount;
+  const feePercent = useMemo(() => method ? feePercentForInstallments(method.defaultFeePercent,method.variableFee,method.rules,installments) : 0,[installments,method]);
+  const {chargedTotal:chargeTotal,chargedBalance,feeAmount,netAmount}=calculateCardAmounts(order.total,entryAmount,feePercent,customerAssumesFee);
   const allowedInstallments = useMemo(() => {
-    const maximum = method?.supportsInstallments ? Math.max(1, method.maximumInstallments || 1) : 1;
-    return Array.from({ length: maximum }, (_, index) => index + 1).filter((count) =>
-      !method?.variableFee || method.rules.some((rule) => count >= rule.minimumInstallments && (rule.maximumInstallments === null || count <= rule.maximumInstallments))
-    );
+    return method?allowedInstallmentCounts(method.supportsInstallments,method.maximumInstallments,method.variableFee,method.rules):[1];
   }, [method]);
 
   function chooseMethod(value: string) {
     const selected = options.methods.find((item) => item.id === value);
     setMethodId(value);
     if (selected?.defaultAccountId) setAccountId(selected.defaultAccountId);
-    const nextAllowed = selected?.supportsInstallments
-      ? Array.from({ length: Math.max(1, selected.maximumInstallments || 1) }, (_, index) => index + 1).filter((count) => !selected.variableFee || selected.rules.some((rule) => count >= rule.minimumInstallments && (rule.maximumInstallments === null || count <= rule.maximumInstallments)))
-      : [1];
+    const nextAllowed = selected?allowedInstallmentCounts(selected.supportsInstallments,selected.maximumInstallments,selected.variableFee,selected.rules):[1];
     setInstallments(nextAllowed[0] ?? 1);
   }
 

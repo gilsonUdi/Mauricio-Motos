@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getPool } from "@/lib/db";
 import type { OrderStatus, StockShortage } from "@/lib/types";
 import { getTenantScope } from "@/lib/auth";
+import { addMonthsIso, calculateCardAmounts, splitCents } from "@/lib/financial-calculations";
 
 const validStatuses = new Set<OrderStatus>([
   "ORCAMENTO",
@@ -12,11 +13,6 @@ const validStatuses = new Set<OrderStatus>([
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const cents = (value: number) => Math.round(value * 100);
-const isoMonth = (date: string, offset: number) => {
-  const parsed = new Date(`${date}T12:00:00Z`);
-  parsed.setUTCMonth(parsed.getUTCMonth() + offset);
-  return parsed.toISOString().slice(0, 10);
-};
 
 export async function PATCH(
   request: Request,
@@ -160,8 +156,7 @@ export async function PATCH(
       const customerAssumesFee = body.customerAssumesFee === true && feePercent > 0;
       if (customerAssumesFee && feePercent >= 100) throw new Error("INVALID_FEE");
       const baseTotal = Number(current.rows[0].total_value);
-      const chargedTotal = Math.round((customerAssumesFee ? baseTotal / (1 - feePercent / 100) : baseTotal) * 100) / 100;
-      const feeAmount = Math.round(chargedTotal * feePercent) / 100;
+      const {chargedTotal,feeAmount}=calculateCardAmounts(baseTotal,entryAmount,feePercent,customerAssumesFee);
       saleFinance = {
         entryAmount: Math.round(entryAmount * 100) / 100,
         installmentCount,
@@ -252,9 +247,7 @@ export async function PATCH(
         [id],
       );
       const totalCents = cents(saleFinance!.chargedTotal);
-      const entryCents = cents(saleFinance!.customerAssumesFee && saleFinance!.feePercent > 0
-        ? saleFinance!.entryAmount / (1 - saleFinance!.feePercent / 100)
-        : saleFinance!.entryAmount);
+      const entryCents = cents(calculateCardAmounts(saleFinance!.entryAmount,saleFinance!.entryAmount,saleFinance!.feePercent,saleFinance!.customerAssumesFee).chargedTotal);
       const remainingCents = totalCents - entryCents;
       const obligations = [
         ...(entryCents > 0
@@ -267,17 +260,10 @@ export async function PATCH(
               },
             ]
           : []),
-        ...Array.from(
-          { length: saleFinance!.installmentCount },
-          (_, index) => ({
-            amount:
-              remainingCents > 0
-                ? Math.floor(remainingCents / saleFinance!.installmentCount) +
-                  (index === saleFinance!.installmentCount - 1
-                    ? remainingCents % saleFinance!.installmentCount
-                    : 0)
-                : 0,
-            date: isoMonth(saleFinance!.firstDueDate, index),
+        ...splitCents(remainingCents,saleFinance!.installmentCount).map(
+          (amount, index) => ({
+            amount,
+            date: addMonthsIso(saleFinance!.firstDueDate, index),
             label: `${index + 1}ª parcela`,
             number: index + 1,
           }),
