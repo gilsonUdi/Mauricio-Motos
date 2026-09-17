@@ -51,20 +51,20 @@ export function AppSidebar({ active }: { active: string }) {
   async function logout() { await fetch("/api/auth/logout", { method: "POST" }); window.location.assign("/login"); }
   return (
     <aside className="sidebar">
-      <Link className="brand-mark" href="/" aria-label="Início"><Wrench size={22} /><span>MM</span></Link>
+      <Link className="brand-mark" href="/" aria-label="Ir para o início"><Wrench size={25} /></Link>
       {enabled && user?.companyName && <span className="tenant-name" title={user.companyName}>{user.companyName}</span>}
       <nav aria-label="Navegação principal">
         {visibleEntries.map(({ id, label, icon: Icon, href }) => href ? (
-          <Link className={`nav-button ${active === id ? "active" : ""}`} href={href} key={id} title={label}>
-            <Icon size={20} /><span>{label}</span>
+          <Link className={`nav-button ${active === id ? "active" : ""}`} href={href} key={id} title={label} aria-current={active===id?"page":undefined}>
+            <Icon size={19} aria-hidden="true" /><span>{label}</span>
           </Link>
         ) : (
           <button className="nav-button" key={id} title={`${label} — em breve`} disabled>
-            <Icon size={20} /><span>{label}</span>
+            <Icon size={19} aria-hidden="true" /><span>{label}</span>
           </button>
         ))}
       </nav>
-      <div className="sidebar-bottom">{(!enabled || user?.role === "ADMIN") && <Link className={`nav-button ${active === "usuarios" ? "active" : ""}`} href="/usuarios" title="Usuários"><Settings size={20} /><span>Usuários</span></Link>}{enabled && user && <button className="nav-button" title={`Sair de ${user.name}`} onClick={logout}><LogOut size={20} /><span>Sair</span></button>}</div>
+      <div className="sidebar-bottom">{(!enabled || user?.role === "ADMIN") && <Link className={`nav-button ${active === "usuarios" ? "active" : ""}`} href="/usuarios" title="Usuários" aria-current={active==="usuarios"?"page":undefined}><Settings size={19} aria-hidden="true"/><span>Usuários</span></Link>}{enabled && user && <button className="nav-button logout-button" title={`Sair de ${user.name}`} onClick={logout}><LogOut size={19} aria-hidden="true"/><span>Sair</span></button>}</div>
     </aside>
   );
 }

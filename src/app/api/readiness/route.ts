@@ -48,17 +48,23 @@ export async function GET(){
           OR ABS(COALESCE(o.charged_total,o.total_value)-COALESCE((SELECT MAX(e.amount) FROM app_live.financial_events e WHERE e.company_id=o.company_id AND e.source_type='WORK_ORDER' AND e.source_id=o.id AND e.event_type='RECEITA_VENDA' AND e.reversed_at IS NULL),0))>0.01
           OR ABS(COALESCE(o.payment_fee_amount,0)-COALESCE((SELECT MAX(e.amount) FROM app_live.financial_events e JOIN app_live.financial_categories c ON c.id=e.category_id AND c.company_id=e.company_id AND c.system_code='PAYMENT_FEES' WHERE e.company_id=o.company_id AND e.source_type='WORK_ORDER' AND e.source_id=o.id AND e.event_key=concat('sale:',o.id,':payment-fee') AND e.reversed_at IS NULL),0))>0.01
         )) AS broken_sales,
-        (SELECT count(*)::integer FROM app_live.purchases p WHERE p.company_id=$1::uuid AND p.status='CONFIRMADA' AND NOT EXISTS(SELECT 1 FROM app_live.accounts_payable a WHERE a.purchase_id=p.id AND a.status<>'CANCELADO')) AS broken_purchases`,[scope.companyId]),
+        (SELECT count(*)::integer FROM app_live.purchases p WHERE p.company_id=$1::uuid AND p.status='CONFIRMADA' AND NOT EXISTS(SELECT 1 FROM app_live.accounts_payable a WHERE a.purchase_id=p.id AND a.status<>'CANCELADO')) AS broken_purchases,
+        (SELECT count(*)::integer FROM app_live.purchases p WHERE p.company_id=$1::uuid AND p.status='CANCELADA' AND (
+          EXISTS(SELECT 1 FROM app_live.accounts_payable a WHERE a.company_id=p.company_id AND a.purchase_id=p.id AND (a.status<>'CANCELADO' OR a.open_amount>0.01))
+          OR EXISTS(SELECT 1 FROM app_live.inventory_movements m WHERE m.company_id=p.company_id AND m.source_type='PURCHASE' AND m.source_id=p.id AND m.reversed_at IS NULL)
+          OR EXISTS(SELECT 1 FROM app_live.financial_events e WHERE e.company_id=p.company_id AND e.source_type='PURCHASE' AND e.source_id=p.id AND e.reversed_at IS NULL)
+        )) AS broken_purchase_reversals`,[scope.companyId]),
       pool.query(`SELECT c.item_key,c.completed,c.notes,c.completed_at,u.name AS completed_by_name FROM app_live.go_live_checklist c LEFT JOIN app_live.app_users u ON u.id=c.completed_by WHERE c.company_id=$1::uuid`,[scope.companyId]),
     ]);
-    const row=counts.rows[0];const operationalIssues=Number(row.unauthorized_negative_stock)+Number(row.broken_sales)+Number(row.broken_purchases);
+    const row=counts.rows[0];const operationalIssues=Number(row.unauthorized_negative_stock)+Number(row.broken_sales)+Number(row.broken_purchases)+Number(row.broken_purchase_reversals);
     const automatic=[
       {key:"database",label:"Conexão com PostgreSQL",status:"OK",detail:`Resposta em ${Date.now()-started} ms`},
       {key:"authentication",label:"Autenticação do portal",status:process.env.AUTH_SECRET&&process.env.DATABASE_URL?"OK":"ERRO",detail:process.env.AUTH_SECRET&&process.env.DATABASE_URL?"Credenciais do backend configuradas":"Variáveis obrigatórias ausentes"},
       {key:"administrators",label:"Administrador da empresa",status:Number(row.admins)>0?"OK":"ERRO",detail:`${row.admins} administrador(es) ativo(s)`},
       {key:"financial_setup",label:"Configuração financeira",status:Number(row.accounts)>0&&Number(row.methods)>0&&Number(row.categories)>0?"OK":"ATENCAO",detail:`${row.accounts} conta(s), ${row.methods} forma(s) e ${row.categories} categoria(s)`},
       {key:"catalogs",label:"Cadastros operacionais",status:Number(row.customers)>0&&Number(row.products)>0?"OK":"ATENCAO",detail:`${row.customers} cliente(s) e ${row.products} produto(s) ativo(s)`},
-      {key:"integrity",label:"Integridade operacional e financeira",status:operationalIssues===0?"OK":"ERRO",detail:operationalIssues===0?"Vendas, taxas, estoque e compras sem falhas críticas":`${operationalIssues} registro(s) crítico(s) na área de Conferência`},
+      {key:"integrity",label:"Integridade operacional e financeira",status:operationalIssues===0?"OK":"ERRO",detail:operationalIssues===0?"Vendas, taxas, estoque, compras e estornos sem falhas críticas":`${operationalIssues} registro(s) crítico(s) na área de Conferência`},
+      {key:"purchase_reversals",label:"Estornos de compras",status:Number(row.broken_purchase_reversals)===0?"OK":"ERRO",detail:Number(row.broken_purchase_reversals)===0?"Compras canceladas sem obrigações ou movimentos ativos":`${row.broken_purchase_reversals} compra(s) cancelada(s) com efeitos ainda ativos`},
       {key:"authorized_stock",label:"Vendas autorizadas sem estoque",status:Number(row.authorized_negative_stock)>0?"ATENCAO":"OK",detail:Number(row.authorized_negative_stock)>0?`${row.authorized_negative_stock} produto(s) aguardando reposição após autorização`:"Nenhuma exceção autorizada aguardando reposição"},
     ];
     const savedByKey=new Map(saved.rows.map(item=>[item.item_key,item]));const items=checklist.map(item=>({...item,...(savedByKey.get(item.key)??{completed:false,notes:null,completed_at:null,completed_by_name:null})}));
