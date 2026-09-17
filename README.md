@@ -58,6 +58,8 @@ A central de prontidão inclui o diagnóstico específico dos estornos de compra
 
 Os cálculos financeiros críticos possuem testes automatizados executados com `npm test`: máscaras e leitura de valores brasileiros, CPF/CNPJ, campos fiscais, regras de taxa por parcela, repasse da taxa ao cliente, fechamento em centavos e vencimentos mensais. Vencimentos nos dias 29, 30 ou 31 são ajustados ao último dia válido do mês seguinte.
 
+A central de prontidão também conduz a homologação assistida por empresa. O administrador registra resultado, evidência, responsável e data para oito cenários críticos; o sistema só indica prontidão para o corte quando todos estiverem aprovados, além do diagnóstico automático e do checklist operacional.
+
 Os cadastros de clientes e fornecedores validam CPF/CNPJ no backend. A consulta de CEP usa o ViaCEP e a consulta cadastral de CNPJ usa a BrasilAPI, sempre pelo backend para manter o formulário independente dos provedores externos.
 
 A migração `db/migrations/018_tax_reform_products.sql` prepara o cadastro de produtos e serviços para armazenar CST e classificação tributária do IBS/CBS, alíquotas estadual e municipal do IBS, CBS, Imposto Seletivo, NBS e código de serviço. Esses campos são cadastrais e não executam cálculo tributário automático.
