@@ -34,7 +34,7 @@ export async function GET() {
             AND NOT EXISTS (SELECT 1 FROM app_live.purchases p WHERE p.company_id=f.company_id AND p.legacy_purchase_key=f.legacy_finance_key)
           GROUP BY f.id
         ) history ORDER BY date DESC NULLS LAST, created_at DESC LIMIT 500`,[scope.companyId]),
-      pool.query(`SELECT id::text,name,type,cost_price,current_stock FROM app_live.products WHERE active AND company_id=$1::uuid AND item_kind<>'SERVICO' ORDER BY name`,[scope.companyId]),
+      pool.query(`SELECT id::text,name,type,sku,barcode,cost_price,current_stock FROM app_live.products WHERE active AND company_id=$1::uuid AND item_kind<>'SERVICO' ORDER BY name`,[scope.companyId]),
       pool.query(`SELECT id::text,name,payment_terms_days FROM app_live.suppliers WHERE active AND company_id=$1::uuid ORDER BY name`,[scope.companyId]),
     ]);
     return NextResponse.json({
@@ -43,7 +43,7 @@ export async function GET() {
         itemCount: Number(row.item_count), totalQuantity: Number(row.total_quantity),
       })),
       products: products.rows.map((row) => ({
-        id: row.id, name: row.name, type: row.type, costPrice: Number(row.cost_price ?? 0), stock: Number(row.current_stock ?? 0),
+        id: row.id, name: row.name, type: row.type, sku:row.sku??undefined, barcode:row.barcode??undefined, costPrice: Number(row.cost_price ?? 0), stock: Number(row.current_stock ?? 0),
       })),
       suppliers: suppliers.rows.map((row)=>({id:row.id,name:row.name,paymentTermsDays:Number(row.payment_terms_days??0)})),
     });

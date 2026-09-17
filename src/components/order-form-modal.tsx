@@ -4,6 +4,7 @@ import { Bike, CirclePlus, LoaderCircle, PackagePlus, Save, Trash2, UserRound, X
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { OrderLookups, ProductLookup, WorkOrder } from "@/lib/types";
 import { MoneyInput } from "@/components/money-input";
+import { SuggestionInput, type SuggestionOption } from "@/components/suggestion-input";
 import { numberToMoneyInput, parseBrazilianNumber } from "@/lib/numbers";
 
 type DraftItem = {
@@ -31,8 +32,6 @@ const addDays = (value: string, days: number) => {
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
 };
-const normalize = (value: string) => value.trim().toLocaleLowerCase("pt-BR");
-
 function blankItem(key: number): DraftItem {
   return { key, name: "", type: "Produto", quantity: "1", unitPrice: "0,00" };
 }
@@ -64,7 +63,6 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
     unitPrice: numberToMoneyInput(item.unitPrice),
   })) : [blankItem(1)]);
   const [nextKey, setNextKey] = useState((initialOrder?.items.length ?? 1) + 1);
-  const [activeProductSearch, setActiveProductSearch] = useState<number>();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -107,16 +105,24 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
   ), 0), [items]);
   const total = Math.max(0, subtotal - parseBrazilianNumber(discount));
 
-  function chooseCustomer(value: string) {
+  function typeCustomer(value: string) {
     setCustomerName(value);
-    const customer = lookups?.customers.find((entry) => normalize(entry.name) === normalize(value));
-    setCustomerId(customer?.id ?? "");
-    setPhone(customer?.phone ?? "");
-    setDocument(customer?.document ?? "");
+    setCustomerId("");
+    setPhone("");
+    setDocument("");
     setVehicleId("");
     setPlate("");
     setModel("");
     setMileage("");
+  }
+
+  function chooseCustomer(option: SuggestionOption) {
+    const customer = lookups?.customers.find((entry) => entry.id === option.id);
+    setCustomerName(customer?.name ?? option.value);
+    setCustomerId(customer?.id ?? "");
+    setPhone(customer?.phone ?? "");
+    setDocument(customer?.document ?? "");
+    setVehicleId("");setPlate("");setModel("");setMileage("");
   }
 
   function chooseVehicle(id: string) {
@@ -131,29 +137,22 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
     setItems((current) => current.map((item) => item.key === key ? { ...item, ...patch } : item));
   }
 
-  function searchProducts(value: string) {
-    const term = normalize(value);
-    return (lookups?.products ?? []).filter((product) =>
-      !term || normalize(`${product.name} ${product.sku ?? ""} ${product.barcode ?? ""}`).includes(term)
-    ).slice(0, 10);
-  }
-
   function typeProductSearch(item: DraftItem, value: string) {
     updateItem(item.key, {
       name: value,
       productId: undefined,
     });
-    setActiveProductSearch(item.key);
   }
 
-  function chooseProduct(item: DraftItem, product: ProductLookup) {
+  function chooseProduct(item: DraftItem, option: SuggestionOption) {
+    const product = lookups?.products.find((entry) => entry.id === option.id) as ProductLookup | undefined;
+    if (!product) return;
     updateItem(item.key, {
       name: product.name,
       productId: product.id,
       type: product.type ?? item.type,
       unitPrice: numberToMoneyInput(product.salePrice),
     });
-    setActiveProductSearch(undefined);
   }
 
   function addItem() {
@@ -218,7 +217,7 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
             <fieldset className="form-section">
               <legend><UserRound size={18} /> Cliente</legend>
               <div className="form-grid three-columns">
-                <label className="field span-2"><span>Cliente *</span><input list="customer-options" value={customerName} onChange={(event) => chooseCustomer(event.target.value)} placeholder="Busque ou digite um novo cliente" required /></label>
+                <label className="field span-2"><span>Cliente *</span><SuggestionInput value={customerName} onChange={typeCustomer} onSelect={chooseCustomer} placeholder="Busque ou digite um novo cliente" required options={(lookups?.customers??[]).map(customer=>({id:customer.id,value:customer.name,code:customer.document||customer.phone,description:customer.name}))}/></label>
                 <label className="field"><span>Data do orçamento</span><input type="date" value={budgetDate} onChange={(event) => { const next=event.target.value; setBudgetDate(next); if(next)setValidUntil(addDays(next,7)); }} /></label>
                 <label className="field"><span>Telefone</span><input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="(00) 00000-0000" disabled={Boolean(customerId)} /></label>
                 <label className="field"><span>CPF/CNPJ</span><input value={document} onChange={(event) => setDocument(event.target.value)} placeholder="Documento" disabled={Boolean(customerId)} /></label>
@@ -242,16 +241,7 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
               <div className="editor-head"><span>Descrição</span><span>Tipo</span><span>Qtd.</span><span>Valor unit.</span><span></span></div>
               {items.map((item) => (
                 <div className="editor-row" key={item.key}>
-                  <div className="product-picker">
-                    <input value={item.name} onFocus={() => setActiveProductSearch(item.key)} onChange={(event) => typeProductSearch(item, event.target.value)} onBlur={() => window.setTimeout(() => setActiveProductSearch((current) => current === item.key ? undefined : current), 150)} placeholder="Buscar por nome, SKU ou código" autoComplete="off" required />
-                    {activeProductSearch === item.key && <div className="product-search-results">
-                      {searchProducts(item.name).map((product) => <button type="button" key={product.id} onMouseDown={(event) => event.preventDefault()} onClick={() => chooseProduct(item, product)}>
-                        <span><strong>{product.name}</strong><small>{[product.type, product.sku ? `SKU ${product.sku}` : "", product.stock === undefined ? "" : `Estoque ${product.stock.toLocaleString("pt-BR")}`].filter(Boolean).join(" · ")}</small></span>
-                        <b>{currency.format(product.salePrice)}</b>
-                      </button>)}
-                      {!searchProducts(item.name).length && <p>Nenhum item cadastrado encontrado.</p>}
-                    </div>}
-                  </div>
+                  <SuggestionInput className="product-picker" value={item.name} onChange={(value)=>typeProductSearch(item,value)} onSelect={(option)=>chooseProduct(item,option)} placeholder="Buscar por nome, SKU ou código" required emptyMessage="Nenhum item cadastrado encontrado." options={(lookups?.products??[]).map(product=>({id:product.id,value:product.name,code:product.sku||product.barcode,description:product.name}))}/>
                   <select value={item.type} onChange={(event) => updateItem(item.key, { type: event.target.value })}><option>Produto</option><option>Serviço</option><option>Produto/Serviço</option></select>
                   <input type="number" min="0.001" step="0.001" value={item.quantity} onChange={(event) => updateItem(item.key, { quantity: event.target.value })} aria-label="Quantidade" />
                   <MoneyInput value={item.unitPrice} onValueChange={(value) => updateItem(item.key, { unitPrice: value })} aria-label="Valor unitário" required />
@@ -274,8 +264,6 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
             <footer className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancelar</button><button type="submit" className="primary-button" disabled={saving}>{saving ? <LoaderCircle className="spin" size={18} /> : <Save size={18} />}{saving ? "Salvando..." : initialOrder ? "Salvar alterações" : "Salvar orçamento"}</button></footer>
           </form>
         )}
-
-        <datalist id="customer-options">{lookups?.customers.map((customer) => <option key={customer.id} value={customer.name} />)}</datalist>
       </section>
     </div>
   );

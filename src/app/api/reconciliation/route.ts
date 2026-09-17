@@ -123,6 +123,29 @@ const checks: Check[] = [
       GROUP BY x.id,x.document_number,x.name,x.quantity HAVING ABS(x.quantity-COALESCE(SUM(m.quantity) FILTER (WHERE m.movement_type='COMPRA' AND m.reversed_at IS NULL),0))>0.001`,
   },
   {
+    code: "CANCELLED_PURCHASE_PAYABLE", module: "COMPRAS", severity: "CRITICO", title: "Compra cancelada com obrigação ativa",
+    query: `SELECT p.id::text AS reference_id,concat('Compra cancelada · ',p.supplier_name) AS reference,
+      'A compra foi cancelada, mas ainda existe conta a pagar ativa ou com saldo em aberto.' AS description,0 AS expected,
+      COALESCE(SUM(a.open_amount) FILTER (WHERE a.status<>'CANCELADO' OR a.open_amount>0.01),0) AS actual
+      FROM app_live.purchases p JOIN app_live.accounts_payable a ON a.purchase_id=p.id AND a.company_id=p.company_id
+      WHERE p.company_id=$1::uuid AND p.status='CANCELADA' GROUP BY p.id
+      HAVING COUNT(a.id) FILTER (WHERE a.status<>'CANCELADO' OR a.open_amount>0.01)>0`,
+  },
+  {
+    code: "CANCELLED_PURCHASE_STOCK", module: "ESTOQUE", severity: "CRITICO", title: "Compra cancelada com entrada de estoque ativa",
+    query: `SELECT p.id::text AS reference_id,concat('Compra cancelada · ',p.supplier_name) AS reference,
+      'A compra foi cancelada, mas uma ou mais entradas de estoque continuam ativas.' AS description,0 AS expected,COUNT(m.id) AS actual
+      FROM app_live.purchases p JOIN app_live.inventory_movements m ON m.company_id=p.company_id AND m.source_type='PURCHASE' AND m.source_id=p.id AND m.reversed_at IS NULL
+      WHERE p.company_id=$1::uuid AND p.status='CANCELADA' GROUP BY p.id HAVING COUNT(m.id)>0`,
+  },
+  {
+    code: "CANCELLED_PURCHASE_EVENT", module: "FINANCEIRO", severity: "CRITICO", title: "Compra cancelada com evento financeiro ativo",
+    query: `SELECT p.id::text AS reference_id,concat('Compra cancelada · ',p.supplier_name) AS reference,
+      'A compra foi cancelada, mas o evento financeiro correspondente não foi estornado.' AS description,0 AS expected,COUNT(e.id) AS actual
+      FROM app_live.purchases p JOIN app_live.financial_events e ON e.company_id=p.company_id AND e.source_type='PURCHASE' AND e.source_id=p.id AND e.reversed_at IS NULL
+      WHERE p.company_id=$1::uuid AND p.status='CANCELADA' GROUP BY p.id HAVING COUNT(e.id)>0`,
+  },
+  {
     code: "RECEIVABLE_BALANCE", module: "FINANCEIRO", severity: "ALERTA", title: "Saldo de conta a receber inconsistente",
     query: `SELECT r.id::text AS reference_id,concat('Recebível · ',r.customer_name,' · ',r.due_date::text) AS reference,'O saldo ou status não acompanha os recebimentos registrados.' AS description,GREATEST(COALESCE(r.original_amount,r.amount)-COALESCE(SUM(rp.amount) FILTER (WHERE rp.reversed_at IS NULL),0),0) AS expected,r.open_amount AS actual
       FROM app_live.receivables r LEFT JOIN app_live.receivable_payments rp ON rp.receivable_id=r.id

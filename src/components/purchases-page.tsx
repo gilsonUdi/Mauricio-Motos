@@ -5,9 +5,10 @@ import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { MoneyInput } from "@/components/money-input";
+import { SuggestionInput, type SuggestionOption } from "@/components/suggestion-input";
 import { numberToMoneyInput, parseBrazilianNumber } from "@/lib/numbers";
 
-type Product = { id: string; name: string; type?: string; costPrice: number; stock: number };
+type Product = { id: string; name: string; type?: string; sku?:string; barcode?:string; costPrice: number; stock: number };
 type Supplier = { id:string; name:string; paymentTermsDays:number };
 type Purchase = { id: string; date: string; supplier: string; total: number; itemCount: number; totalQuantity: number };
 type DraftItem = { key: number; productId?: string; productName: string; quantity: string; unitCost: string };
@@ -16,8 +17,6 @@ const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "
 const dateFormatter = new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" });
 const today = () => { const date = new Date(); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; };
 const blankItem = (key: number): DraftItem => ({ key, productName: "", quantity: "1", unitCost: "0,00" });
-const normalize = (value: string) => value.trim().toLocaleLowerCase("pt-BR");
-
 export function PurchasesPage() {
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -63,9 +62,14 @@ export function PurchasesPage() {
   const monthPurchases = purchases.filter((purchase) => purchase.date?.startsWith(monthPrefix));
   const monthTotal = monthPurchases.reduce((sum, purchase) => sum + purchase.total, 0);
 
-  function chooseProduct(item: DraftItem, value: string) {
-    const product = products.find((entry) => normalize(entry.name) === normalize(value));
-    setItems((current) => current.map((entry) => entry.key === item.key ? { ...entry, productName: value, productId: product?.id, unitCost: product ? numberToMoneyInput(product.costPrice) : entry.unitCost } : entry));
+  function typeProduct(item: DraftItem, value: string) {
+    setItems((current) => current.map((entry) => entry.key === item.key ? { ...entry, productName: value, productId: undefined } : entry));
+  }
+
+  function chooseProduct(item: DraftItem, option: SuggestionOption) {
+    const product = products.find((entry) => entry.id === option.id);
+    if(!product)return;
+    setItems((current) => current.map((entry) => entry.key === item.key ? { ...entry, productName: product.name, productId: product.id, unitCost: numberToMoneyInput(product.costPrice) } : entry));
   }
 
   function resetForm() {
@@ -125,9 +129,8 @@ export function PurchasesPage() {
     </main>
     {showForm && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setShowForm(false)}><section className="order-modal" role="dialog" aria-modal="true" aria-labelledby="purchase-title"><header className="modal-header"><div><span className="section-kicker">ESTOQUE</span><h2 id="purchase-title">Nova compra</h2></div><button className="icon-button" onClick={() => setShowForm(false)} aria-label="Fechar"><X /></button></header><form className="order-form" onSubmit={save}>
       <div className="form-grid purchase-header-grid"><label className="field"><span>Fornecedor *</span><select value={supplierId} onChange={(event)=>{setSupplierId(event.target.value);setSupplier(suppliers.find(item=>item.id===event.target.value)?.name??"");}} required><option value="">Selecione um fornecedor cadastrado</option>{suppliers.map(item=><option value={item.id} key={item.id}>{item.name}{item.paymentTermsDays?` · ${item.paymentTermsDays} dias`:""}</option>)}</select></label><label className="field"><span>Data *</span><input type="date" value={date} onChange={(event) => setDate(event.target.value)} required /></label></div>
-      <fieldset className="form-section purchase-items"><legend><ShoppingCart size={18} /> Itens da compra</legend><div className="purchase-editor-head"><span>Produto</span><span>Quantidade</span><span>Custo unitário</span><span>Total</span><span></span></div>{items.map((item) => { const itemTotal = (Number(item.quantity) || 0) * parseBrazilianNumber(item.unitCost); return <div className="purchase-editor-row" key={item.key}><input list="purchase-products" value={item.productName} onChange={(event) => chooseProduct(item, event.target.value)} placeholder="Busque um produto" required /><input type="number" min="0.001" step="0.001" value={item.quantity} onChange={(event) => setItems((current) => current.map((entry) => entry.key === item.key ? { ...entry, quantity: event.target.value } : entry))} aria-label="Quantidade" /><MoneyInput value={item.unitCost} onValueChange={(value) => setItems((current) => current.map((entry) => entry.key === item.key ? { ...entry, unitCost: value } : entry))} aria-label="Custo unitário" required /><strong>{currency.format(itemTotal)}</strong><button type="button" className="remove-item" disabled={items.length === 1} onClick={() => setItems((current) => current.filter((entry) => entry.key !== item.key))}><Trash2 size={18} /></button></div>; })}<button className="add-item" type="button" onClick={() => { setItems((current) => [...current, blankItem(nextKey)]); setNextKey((current) => current + 1); }}><CirclePlus size={17} /> Adicionar produto</button></fieldset>
+      <fieldset className="form-section purchase-items"><legend><ShoppingCart size={18} /> Itens da compra</legend><div className="purchase-editor-head"><span>Produto</span><span>Quantidade</span><span>Custo unitário</span><span>Total</span><span></span></div>{items.map((item) => { const itemTotal = (Number(item.quantity) || 0) * parseBrazilianNumber(item.unitCost); return <div className="purchase-editor-row" key={item.key}><SuggestionInput value={item.productName} onChange={(value)=>typeProduct(item,value)} onSelect={(option)=>chooseProduct(item,option)} placeholder="Busque por código ou descrição" required options={products.map(product=>({id:product.id,value:product.name,code:product.sku||product.barcode,description:product.name}))}/><input type="number" min="0.001" step="0.001" value={item.quantity} onChange={(event) => setItems((current) => current.map((entry) => entry.key === item.key ? { ...entry, quantity: event.target.value } : entry))} aria-label="Quantidade" /><MoneyInput value={item.unitCost} onValueChange={(value) => setItems((current) => current.map((entry) => entry.key === item.key ? { ...entry, unitCost: value } : entry))} aria-label="Custo unitário" required /><strong>{currency.format(itemTotal)}</strong><button type="button" className="remove-item" disabled={items.length === 1} onClick={() => setItems((current) => current.filter((entry) => entry.key !== item.key))}><Trash2 size={18} /></button></div>; })}<button className="add-item" type="button" onClick={() => { setItems((current) => [...current, blankItem(nextKey)]); setNextKey((current) => current + 1); }}><CirclePlus size={17} /> Adicionar produto</button></fieldset>
       <div className="purchase-total"><span>Total da compra</span><strong>{currency.format(total)}</strong></div>{error && <p className="form-error">{error}</p>}<footer className="modal-actions"><button className="secondary-button" type="button" onClick={() => setShowForm(false)}>Cancelar</button><button className="primary-button" disabled={saving}>{saving ? <LoaderCircle className="spin" size={18} /> : <Save size={18} />}{saving ? "Registrando..." : "Registrar compra"}</button></footer>
-      <datalist id="purchase-products">{products.map((product) => <option key={product.id} value={product.name}>{currency.format(product.costPrice)} · estoque {product.stock}</option>)}</datalist>
     </form></section></div>}
     {notice && <button className="toast" onClick={() => setNotice("")}>{notice}</button>}
   </div>;

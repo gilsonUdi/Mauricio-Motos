@@ -52,6 +52,8 @@ A migração `db/migrations/019_stock_override.sql` permite concluir uma venda c
 
 Compras confirmadas também podem ser canceladas com estorno transacional. O sistema bloqueia o cancelamento quando já existe pagamento ou movimentação posterior do produto, restaura o saldo e o custo médio anteriores, cancela a obrigação financeira e preserva as movimentações estornadas no histórico e na auditoria.
 
+Os campos pesquisáveis de cliente e produto usam uma lista padronizada no formato “código — descrição”, filtrável por qualquer parte do cadastro e navegável pelo teclado. A conferência operacional também valida se compras canceladas deixaram obrigações, entradas de estoque ou eventos financeiros ativos.
+
 Os cadastros de clientes e fornecedores validam CPF/CNPJ no backend. A consulta de CEP usa o ViaCEP e a consulta cadastral de CNPJ usa a BrasilAPI, sempre pelo backend para manter o formulário independente dos provedores externos.
 
 A migração `db/migrations/018_tax_reform_products.sql` prepara o cadastro de produtos e serviços para armazenar CST e classificação tributária do IBS/CBS, alíquotas estadual e municipal do IBS, CBS, Imposto Seletivo, NBS e código de serviço. Esses campos são cadastrais e não executam cálculo tributário automático.
