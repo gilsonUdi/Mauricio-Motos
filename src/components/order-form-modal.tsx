@@ -23,6 +23,7 @@ type Props = {
 };
 
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+const normalize = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR").trim();
 const today = () => {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -63,6 +64,7 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
     unitPrice: numberToMoneyInput(item.unitPrice),
   })) : [blankItem(1)]);
   const [nextKey, setNextKey] = useState((initialOrder?.items.length ?? 1) + 1);
+  const [activeProductSearch, setActiveProductSearch] = useState<number>();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -137,22 +139,29 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
     setItems((current) => current.map((item) => item.key === key ? { ...item, ...patch } : item));
   }
 
+  function searchProducts(value: string) {
+    const term = normalize(value);
+    return (lookups?.products ?? []).filter((product) =>
+      !term || normalize(`${product.name} ${product.sku ?? ""} ${product.barcode ?? ""}`).includes(term)
+    ).slice(0, 10);
+  }
+
   function typeProductSearch(item: DraftItem, value: string) {
     updateItem(item.key, {
       name: value,
       productId: undefined,
     });
+    setActiveProductSearch(item.key);
   }
 
-  function chooseProduct(item: DraftItem, option: SuggestionOption) {
-    const product = lookups?.products.find((entry) => entry.id === option.id) as ProductLookup | undefined;
-    if (!product) return;
+  function chooseProduct(item: DraftItem, product: ProductLookup) {
     updateItem(item.key, {
       name: product.name,
       productId: product.id,
       type: product.type ?? item.type,
       unitPrice: numberToMoneyInput(product.salePrice),
     });
+    setActiveProductSearch(undefined);
   }
 
   function addItem() {
@@ -241,7 +250,16 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
               <div className="editor-head"><span>Descrição</span><span>Tipo</span><span>Qtd.</span><span>Valor unit.</span><span></span></div>
               {items.map((item) => (
                 <div className="editor-row" key={item.key}>
-                  <SuggestionInput className="product-picker" value={item.name} onChange={(value)=>typeProductSearch(item,value)} onSelect={(option)=>chooseProduct(item,option)} placeholder="Buscar por nome, SKU ou código" required emptyMessage="Nenhum item cadastrado encontrado." options={(lookups?.products??[]).map(product=>({id:product.id,value:product.name,code:product.sku||product.barcode,description:product.name}))}/>
+                  <div className="product-picker">
+                    <input value={item.name} onFocus={() => setActiveProductSearch(item.key)} onChange={(event) => typeProductSearch(item, event.target.value)} onBlur={() => window.setTimeout(() => setActiveProductSearch((current) => current === item.key ? undefined : current), 150)} placeholder="Buscar por nome, SKU ou código" autoComplete="off" required />
+                    {activeProductSearch === item.key && <div className="product-search-results">
+                      {searchProducts(item.name).map((product) => <button type="button" key={product.id} onMouseDown={(event) => event.preventDefault()} onClick={() => chooseProduct(item, product)}>
+                        <span><strong>{product.name}</strong><small>{[product.type, product.sku ? `SKU ${product.sku}` : "", product.stock === undefined ? "" : `Estoque ${product.stock.toLocaleString("pt-BR")}`].filter(Boolean).join(" · ")}</small></span>
+                        <b>{currency.format(product.salePrice)}</b>
+                      </button>)}
+                      {!searchProducts(item.name).length && <p>Nenhum item cadastrado encontrado.</p>}
+                    </div>}
+                  </div>
                   <select value={item.type} onChange={(event) => updateItem(item.key, { type: event.target.value })}><option>Produto</option><option>Serviço</option><option>Produto/Serviço</option></select>
                   <input type="number" min="0.001" step="0.001" value={item.quantity} onChange={(event) => updateItem(item.key, { quantity: event.target.value })} aria-label="Quantidade" />
                   <MoneyInput value={item.unitPrice} onValueChange={(value) => updateItem(item.key, { unitPrice: value })} aria-label="Valor unitário" required />
