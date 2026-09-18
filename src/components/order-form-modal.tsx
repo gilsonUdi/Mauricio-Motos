@@ -1,6 +1,6 @@
 "use client";
 
-import { Bike, CirclePlus, LoaderCircle, PackagePlus, Save, Trash2, UserRound, X } from "lucide-react";
+import { AlertTriangle, Bike, CirclePlus, LoaderCircle, PackagePlus, Save, Trash2, UserRound, X } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { OrderLookups, ProductLookup, WorkOrder } from "@/lib/types";
 import { MoneyInput } from "@/components/money-input";
@@ -106,6 +106,15 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
     sum + (Number(item.quantity.replace(",", ".")) || 0) * parseBrazilianNumber(item.unitPrice)
   ), 0), [items]);
   const total = Math.max(0, subtotal - parseBrazilianNumber(discount));
+  const stockShortages = useMemo(() => items.flatMap((item) => {
+    if (!item.productId) return [];
+    const product = lookups?.products.find((entry) => entry.id === item.productId);
+    if (!product || product.stock === undefined) return [];
+    const itemType = normalize(product.type ?? item.type);
+    if (itemType.includes("serv") && !itemType.includes("prod")) return [];
+    const required = Number(item.quantity.replace(",", ".")) || 0;
+    return required > product.stock ? [{ id: product.id, name: product.name, available: product.stock, required }] : [];
+  }), [items, lookups]);
 
   function typeCustomer(value: string) {
     setCustomerName(value);
@@ -174,6 +183,7 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
     setError("");
     if (!customerName.trim()) return setError("Informe o cliente.");
     if (items.some((item) => !item.productId)) return setError("Selecione um produto ou serviço cadastrado em todos os itens.");
+    if (stockShortages.length && !window.confirm(`Existem produtos sem estoque suficiente:\n\n${stockShortages.map((item) => `${item.name}: disponível ${item.available.toLocaleString("pt-BR")}, necessário ${item.required.toLocaleString("pt-BR")}`).join("\n")}\n\nDeseja salvar o orçamento mesmo assim?`)) return;
 
     setSaving(true);
     try {
@@ -253,7 +263,7 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
                   <div className="product-picker">
                     <input value={item.name} onFocus={() => setActiveProductSearch(item.key)} onChange={(event) => typeProductSearch(item, event.target.value)} onBlur={() => window.setTimeout(() => setActiveProductSearch((current) => current === item.key ? undefined : current), 150)} placeholder="Buscar por nome, SKU ou código" autoComplete="off" required />
                     {activeProductSearch === item.key && <div className="product-search-results">
-                      {searchProducts(item.name).map((product) => <button type="button" key={product.id} onMouseDown={(event) => event.preventDefault()} onClick={() => chooseProduct(item, product)}>
+                      {searchProducts(item.name).map((product) => <button type="button" className={product.stock !== undefined && product.stock <= 0 ? "out-of-stock" : ""} key={product.id} onMouseDown={(event) => event.preventDefault()} onClick={() => chooseProduct(item, product)}>
                         <span><strong>{product.name}</strong><small>{[product.type, product.sku ? `SKU ${product.sku}` : "", product.stock === undefined ? "" : `Estoque ${product.stock.toLocaleString("pt-BR")}`].filter(Boolean).join(" · ")}</small></span>
                         <b>{currency.format(product.salePrice)}</b>
                       </button>)}
@@ -267,6 +277,10 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
                 </div>
               ))}
               <button type="button" className="add-item" onClick={addItem}><CirclePlus size={17} /> Adicionar item</button>
+              {stockShortages.length > 0 && <div className="budget-stock-warning" role="alert">
+                <AlertTriangle size={20} />
+                <div><strong>Produto sem estoque suficiente</strong><p>{stockShortages.map((item) => `${item.name}: disponível ${item.available.toLocaleString("pt-BR")} · necessário ${item.required.toLocaleString("pt-BR")}`).join(" | ")}</p><small>Será necessário confirmar explicitamente para salvar este orçamento e novamente antes de concluir a venda.</small></div>
+              </div>}
             </fieldset>
 
             <div className="form-footer-grid">

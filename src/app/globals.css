@@ -178,7 +178,15 @@ h3 { font-size: 20px; }
 .product-search-results button strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .product-search-results button small { color: var(--muted); }
 .product-search-results button > b { flex: none; color: var(--amber-dark); }
+.product-search-results button.out-of-stock { color: #9f2721; background: #fff0ee; box-shadow: inset 3px 0 #c83b32; }
+.product-search-results button.out-of-stock:hover, .product-search-results button.out-of-stock:focus { background: #fbdedb; }
+.product-search-results button.out-of-stock small, .product-search-results button.out-of-stock > b { color: #a12b24; }
 .product-search-results > p { margin: 0; padding: 12px; color: var(--muted); font-size: .86rem; }
+.budget-stock-warning { margin-top: 14px; display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border: 1px solid #df8780; border-radius: 12px; color: #8e201b; background: #fff0ee; }
+.budget-stock-warning > svg { flex: none; margin-top: 1px; }
+.budget-stock-warning div { display: grid; gap: 3px; }
+.budget-stock-warning p { margin: 0; font-size: .9rem; }
+.budget-stock-warning small { color: #7b4541; }
 .suggestion-picker { position: relative; min-width: 0; }
 .suggestion-picker > input { width: 100%; }
 .suggestion-results { position: absolute; z-index: 70; top: calc(100% + 4px); left: 0; width: max(100%, 430px); max-width: min(680px, calc(100vw - 32px)); max-height: 330px; overflow-y: auto; padding: 4px; border: 1px solid #9a9a9a; border-radius: 2px; background: white; box-shadow: 0 10px 28px #17120c2b; }
