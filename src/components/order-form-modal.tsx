@@ -152,7 +152,7 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
     const term = normalize(value);
     return (lookups?.products ?? []).filter((product) =>
       !term || normalize(`${product.name} ${product.sku ?? ""} ${product.barcode ?? ""}`).includes(term)
-    ).slice(0, 10);
+    );
   }
 
   function typeProductSearch(item: DraftItem, value: string) {
