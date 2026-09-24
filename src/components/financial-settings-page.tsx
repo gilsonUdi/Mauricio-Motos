@@ -15,6 +15,7 @@ import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { MoneyInput } from "@/components/money-input";
+import { NumberStepper } from "@/components/number-stepper";
 import { numberToMoneyInput, parseBrazilianNumber } from "@/lib/numbers";
 
 type Account = {
@@ -422,15 +423,7 @@ export function FinancialSettingsPage() {
                     </label>
                     <label className="field">
                       <span>Taxa padrão (%)</span>
-                      <input
-                        type="number"
-                        min="0"
-                        max="99.9999"
-                        step="0.0001"
-                        value={defaultFee}
-                        onChange={(event) => setDefaultFee(event.target.value)}
-                        disabled={variableFee}
-                      />
+                      <NumberStepper min={0} max={99.9999} step={0.0001} value={defaultFee} onChange={setDefaultFee} disabled={variableFee} label="Taxa padrão" />
                     </label>
                     <label className="checkbox-field">
                       <input
@@ -445,7 +438,7 @@ export function FinancialSettingsPage() {
                     {supportsInstallments && (
                       <label className="field">
                         <span>Máximo de parcelas</span>
-                        <input type="number" min="2" max="120" value={maximumInstallments} onChange={(event) => setMaximumInstallments(Math.max(2, Math.min(120, Number(event.target.value) || 2)))} />
+                        <NumberStepper min={2} max={120} value={maximumInstallments} onChange={(value) => setMaximumInstallments(Math.max(2, Math.min(120, Number(value) || 2)))} label="Máximo de parcelas" />
                       </label>
                     )}
                     <label className="checkbox-field">
@@ -465,19 +458,17 @@ export function FinancialSettingsPage() {
                           <div className="fee-rule" key={index}>
                             <label className="field">
                               <span>De</span>
-                              <input
-                                type="number"
-                                min="1"
+                              <NumberStepper
+                                min={1}
                                 value={rule.minimumInstallments}
-                                onChange={(event) =>
+                                label="Mínimo de parcelas"
+                                onChange={(value) =>
                                   setRules((current) =>
                                     current.map((item, i) =>
                                       i === index
                                         ? {
                                             ...item,
-                                            minimumInstallments: Number(
-                                              event.target.value,
-                                            ),
+                                            minimumInstallments: Number(value),
                                           }
                                         : item,
                                     ),
@@ -487,20 +478,19 @@ export function FinancialSettingsPage() {
                             </label>
                             <label className="field">
                               <span>Até</span>
-                              <input
-                                type="number"
+                              <NumberStepper
                                 min={rule.minimumInstallments}
                                 placeholder="Sem limite"
                                 value={rule.maximumInstallments ?? ""}
-                                onChange={(event) =>
+                                label="Máximo de parcelas da faixa"
+                                onChange={(value) =>
                                   setRules((current) =>
                                     current.map((item, i) =>
                                       i === index
                                         ? {
                                             ...item,
-                                            maximumInstallments: event.target
-                                              .value
-                                              ? Number(event.target.value)
+                                            maximumInstallments: value
+                                              ? Number(value)
                                               : null,
                                           }
                                         : item,
@@ -511,21 +501,19 @@ export function FinancialSettingsPage() {
                             </label>
                             <label className="field">
                               <span>Taxa (%)</span>
-                              <input
-                                type="number"
-                                min="0"
-                                max="99.9999"
-                                step="0.0001"
+                              <NumberStepper
+                                min={0}
+                                max={99.9999}
+                                step={0.0001}
                                 value={rule.feePercent}
-                                onChange={(event) =>
+                                label="Taxa da faixa"
+                                onChange={(value) =>
                                   setRules((current) =>
                                     current.map((item, i) =>
                                       i === index
                                         ? {
                                             ...item,
-                                            feePercent: Number(
-                                              event.target.value,
-                                            ),
+                                            feePercent: Number(value),
                                           }
                                         : item,
                                     ),

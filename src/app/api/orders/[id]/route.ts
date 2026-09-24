@@ -78,8 +78,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     let mileage = Math.max(0, Math.trunc(Number(body.mileage) || 0)) || undefined;
     const vehicleId = validUuid(body.vehicleId);
     if (vehicleId) {
-      const vehicle = await client.query(`SELECT plate,description,mileage FROM app_live.vehicles WHERE id=$1::uuid AND company_id=$2::uuid`, [vehicleId,scope.companyId]);
+      const vehicle = await client.query(`SELECT plate,description,mileage,customer_id::text FROM app_live.vehicles WHERE id=$1::uuid AND company_id=$2::uuid`, [vehicleId,scope.companyId]);
       if (!vehicle.rowCount) throw new Error("VEHICLE_NOT_FOUND");
+      if (vehicle.rows[0].customer_id && vehicle.rows[0].customer_id !== customerId) throw new Error("VEHICLE_CUSTOMER_MISMATCH");
       plate = vehicle.rows[0].plate;
       model = vehicle.rows[0].description ?? model;
       mileage = mileage ?? vehicle.rows[0].mileage ?? undefined;
@@ -116,7 +117,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     for (const item of body.items) {
       const productId = validUuid(item.productId);
       if (!productId) throw new Error("PRODUCT_REQUIRED");
-      const quantity = Math.max(0.001, Number(item.quantity) || 1);
+      const quantity = Number(item.quantity);
+      if (!Number.isInteger(quantity) || quantity < 1) throw new Error("INVALID_QUANTITY");
       let name = clean(item.name);
       let type = clean(item.type) ?? "Produto/Serviço";
       const unitPrice = money(item.unitPrice);
@@ -199,10 +201,12 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       CUSTOMER_REQUIRED: { message: "Informe o cliente.", status: 400 },
       CUSTOMER_NOT_FOUND: { message: "Cliente não encontrado.", status: 400 },
       VEHICLE_NOT_FOUND: { message: "Veículo não encontrado.", status: 400 },
+      VEHICLE_CUSTOMER_MISMATCH: { message: "O veículo pertence a outro cliente. Selecione o proprietário do cadastro.", status: 400 },
       MECHANIC_NOT_FOUND: { message: "Mecânico não encontrado.", status: 400 },
       PRODUCT_NOT_FOUND: { message: "Produto ou serviço não encontrado.", status: 400 },
       PRODUCT_REQUIRED: { message: "Selecione somente produtos ou serviços previamente cadastrados.", status: 400 },
       ITEM_NAME_REQUIRED: { message: "Preencha a descrição de todos os itens.", status: 400 },
+      INVALID_QUANTITY: { message: "A quantidade deve ser um número inteiro maior que zero.", status: 400 },
       INVALID_VALIDITY: { message: "A validade não pode ser anterior à data do orçamento.", status: 400 },
     };
     const known = error instanceof Error ? knownErrors[error.message] : undefined;
@@ -210,4 +214,34 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   } finally {
     client.release();
   }
+}
+
+export async function DELETE(_request: Request, context: { params: Promise<{ id: string }> }) {
+  const pool = getPool();
+  if (!pool) return NextResponse.json({ error: "Banco não configurado." }, { status: 503 });
+  const scope = await getTenantScope();
+  if (!scope) return NextResponse.json({ error: "Selecione uma empresa." }, { status: 403 });
+  const { id } = await context.params;
+  if (!validUuid(id)) return NextResponse.json({ error: "Orçamento inválido." }, { status: 400 });
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const order = await client.query(`SELECT order_number,status,sale_date FROM app_live.work_orders WHERE id=$1::uuid AND company_id=$2::uuid FOR UPDATE`, [id,scope.companyId]);
+    if (!order.rowCount) { await client.query("ROLLBACK"); return NextResponse.json({ error: "Orçamento não encontrado." }, { status: 404 }); }
+    if (!(["ORCAMENTO","CANCELADO"].includes(order.rows[0].status)) || order.rows[0].sale_date) {
+      await client.query("ROLLBACK"); return NextResponse.json({ error: "Apenas orçamentos sem venda podem ser excluídos." }, { status: 409 });
+    }
+    const financial = await client.query(`SELECT 1 FROM app_live.receivables WHERE work_order_id=$1::uuid
+      UNION ALL SELECT 1 FROM app_live.financial_events WHERE source_type='WORK_ORDER' AND source_id=$1::uuid
+      UNION ALL SELECT 1 FROM app_live.inventory_movements WHERE source_type='WORK_ORDER' AND source_id=$1::uuid LIMIT 1`, [id]);
+    if (financial.rowCount) { await client.query("ROLLBACK"); return NextResponse.json({ error: "Há lançamentos financeiros vinculados; o orçamento não pode ser excluído." }, { status: 409 }); }
+    await client.query(`INSERT INTO app_live.audit_log (entity_type,entity_id,action,actor_id,details) VALUES ('work_order',$1::uuid,'deleted',$2::uuid,$3::jsonb)`, [id,scope.user?.id??null,JSON.stringify({ orderNumber:order.rows[0].order_number,companyId:scope.companyId })]);
+    await client.query(`DELETE FROM app_live.work_orders WHERE id=$1::uuid AND company_id=$2::uuid`, [id,scope.companyId]);
+    await client.query("COMMIT");
+    return NextResponse.json({ deleted: true });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Falha ao excluir orçamento", error);
+    return NextResponse.json({ error: "Não foi possível excluir o orçamento." }, { status: 500 });
+  } finally { client.release(); }
 }

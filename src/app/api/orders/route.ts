@@ -81,10 +81,11 @@ export async function POST(request: Request) {
 
     if (vehicleId) {
       const found = await client.query(
-        `SELECT plate,description,mileage FROM app_live.vehicles WHERE id=$1::uuid AND company_id=$2::uuid`,
+        `SELECT plate,description,mileage,customer_id::text FROM app_live.vehicles WHERE id=$1::uuid AND company_id=$2::uuid`,
         [vehicleId,scope.companyId],
       );
       if (!found.rowCount) throw new Error("VEHICLE_NOT_FOUND");
+      if (found.rows[0].customer_id && found.rows[0].customer_id !== customerId) throw new Error("VEHICLE_CUSTOMER_MISMATCH");
       plate = found.rows[0].plate;
       model = found.rows[0].description ?? model;
       mileage = mileage ?? found.rows[0].mileage ?? undefined;
@@ -110,7 +111,8 @@ export async function POST(request: Request) {
     for (const item of body.items) {
       const productId = validUuid(item.productId);
       if (!productId) throw new Error("PRODUCT_REQUIRED");
-      const quantity = Math.max(0.001, Number(item.quantity) || 1);
+      const quantity = Number(item.quantity);
+      if (!Number.isInteger(quantity) || quantity < 1) throw new Error("INVALID_QUANTITY");
       let name = clean(item.name);
       let type = clean(item.type) ?? "Produto/Serviço";
       let unitPrice = money(item.unitPrice);
@@ -205,10 +207,12 @@ export async function POST(request: Request) {
       CUSTOMER_REQUIRED: "Informe o cliente.",
       CUSTOMER_NOT_FOUND: "Cliente não encontrado.",
       VEHICLE_NOT_FOUND: "Veículo não encontrado.",
+      VEHICLE_CUSTOMER_MISMATCH: "O veículo pertence a outro cliente. Selecione o proprietário do cadastro.",
       MECHANIC_NOT_FOUND: "Mecânico não encontrado.",
       PRODUCT_NOT_FOUND: "Produto ou serviço não encontrado.",
       PRODUCT_REQUIRED: "Selecione somente produtos ou serviços previamente cadastrados.",
       ITEM_NAME_REQUIRED: "Preencha a descrição de todos os itens.",
+      INVALID_QUANTITY: "A quantidade deve ser um número inteiro maior que zero.",
       INVALID_VALIDITY: "A validade não pode ser anterior à data do orçamento.",
     };
     const message = error instanceof Error ? knownErrors[error.message] : undefined;

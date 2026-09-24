@@ -82,6 +82,7 @@ export async function POST(request: Request, context: Context) {
         [scope.companyId,name,document,cleanText(body.phone),cleanText(body.email)?.toLowerCase(),cleanText(body.zipCode)?.replace(/\D/g,""),cleanText(body.street),cleanText(body.addressNumber),cleanText(body.complement),cleanText(body.district),cleanText(body.city),cleanText(body.state)?.toUpperCase(),cleanText(body.defaultPlate)?.toUpperCase()??null,cleanText(body.defaultModel)],
       );
     } else if (entity === "vehicles") {
+      if (customerId && !(await client.query(`SELECT 1 FROM app_live.customers WHERE id=$1::uuid AND company_id=$2::uuid`, [customerId,scope.companyId])).rowCount) throw new Error("CUSTOMER_NOT_FOUND");
       inserted = await client.query(
         `INSERT INTO app_live.vehicles
          (company_id,customer_id,plate,normalized_plate,description,brand,mileage,manufacture_year,model_year,color,fuel,
@@ -135,7 +136,7 @@ export async function POST(request: Request, context: Context) {
   } catch (error) {
     await client.query("ROLLBACK");
     console.error(`Falha ao criar cadastro ${entity}`, error);
-    const message=error instanceof Error&&error.message==="SUPPLIER_NOT_FOUND"?"Fornecedor inválido.":error instanceof Error&&"code" in error&&error.code==="23505"?"Já existe um cadastro com este documento ou código.":"Não foi possível salvar o cadastro.";
+    const message=error instanceof Error&&error.message==="SUPPLIER_NOT_FOUND"?"Fornecedor inválido.":error instanceof Error&&error.message==="CUSTOMER_NOT_FOUND"?"Cliente não encontrado nesta empresa.":error instanceof Error&&"code" in error&&error.code==="23505"?"Já existe um cadastro com este documento ou código.":"Não foi possível salvar o cadastro.";
     return NextResponse.json({ error: message }, { status: message==="Não foi possível salvar o cadastro."?500:409 });
   } finally {
     client.release();

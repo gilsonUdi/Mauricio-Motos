@@ -4,6 +4,7 @@ import { AlertTriangle, Bike, CirclePlus, LoaderCircle, PackagePlus, Save, Trash
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { OrderLookups, ProductLookup, WorkOrder } from "@/lib/types";
 import { MoneyInput } from "@/components/money-input";
+import { NumberStepper } from "@/components/number-stepper";
 import { SuggestionInput, type SuggestionOption } from "@/components/suggestion-input";
 import { numberToMoneyInput, parseBrazilianNumber } from "@/lib/numbers";
 
@@ -24,6 +25,11 @@ type Props = {
 
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const normalize = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR").trim();
+const formatDocument = (value: string) => {
+  const digits = value.replace(/\D/g, "").slice(0, 14);
+  if (digits.length > 11) return digits.replace(/^(\d{2})(\d)/, "$1.$2").replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3").replace(/\.(\d{3})(\d)/, ".$1/$2").replace(/(\d{4})(\d)$/, "$1-$2");
+  return digits.replace(/^(\d{3})(\d)/, "$1.$2").replace(/\.(\d{3})(\d)/, ".$1.$2").replace(/(\d{3})(\d{1,2})$/, "$1-$2");
+};
 const today = () => {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -47,6 +53,15 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
   const [phone, setPhone] = useState(initialOrder?.phone ?? "");
   const [document, setDocument] = useState("");
   const [vehicleId, setVehicleId] = useState("");
+  const [vehicleSearch, setVehicleSearch] = useState(initialOrder?.model ?? "");
+  const [quickCreate, setQuickCreate] = useState<"customer" | "vehicle" | null>(null);
+  const [quickName, setQuickName] = useState("");
+  const [quickDocument, setQuickDocument] = useState("");
+  const [quickPhone, setQuickPhone] = useState("");
+  const [quickPlate, setQuickPlate] = useState("");
+  const [quickModel, setQuickModel] = useState("");
+  const [quickSaving, setQuickSaving] = useState(false);
+  const [quickError, setQuickError] = useState("");
   const [plate, setPlate] = useState(initialOrder?.plate ?? "");
   const [model, setModel] = useState(initialOrder?.model ?? "");
   const [mileage, setMileage] = useState(initialOrder?.mileage ? String(initialOrder.mileage) : "");
@@ -74,6 +89,10 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
         if (!response.ok) throw new Error(payload.error ?? "Não foi possível carregar os cadastros.");
         const loaded = payload as OrderLookups;
         setLookups(loaded);
+        if (initialOrder?.customerId) {
+          const owner = loaded.customers.find((entry) => entry.id === initialOrder.customerId);
+          if (owner) setDocument(formatDocument(owner.document ?? ""));
+        }
         if (initialOrder?.plate) {
           const normalizedPlate = initialOrder.plate.replace(/[^A-Z0-9]/gi, "").toUpperCase();
           const vehicle = loaded.vehicles.find((entry) =>
@@ -91,16 +110,11 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") { if (quickCreate) setQuickCreate(null); else onClose(); }
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [onClose]);
-
-  const customerVehicles = useMemo(() => {
-    if (!lookups) return [];
-    return customerId ? lookups.vehicles.filter((vehicle) => vehicle.customerId === customerId) : lookups.vehicles;
-  }, [customerId, lookups]);
+  }, [onClose, quickCreate]);
 
   const subtotal = useMemo(() => items.reduce((sum, item) => (
     sum + (Number(item.quantity.replace(",", ".")) || 0) * parseBrazilianNumber(item.unitPrice)
@@ -122,6 +136,7 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
     setPhone("");
     setDocument("");
     setVehicleId("");
+    setVehicleSearch("");
     setPlate("");
     setModel("");
     setMileage("");
@@ -132,16 +147,50 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
     setCustomerName(customer?.name ?? option.value);
     setCustomerId(customer?.id ?? "");
     setPhone(customer?.phone ?? "");
-    setDocument(customer?.document ?? "");
-    setVehicleId("");setPlate("");setModel("");setMileage("");
+    setDocument(formatDocument(customer?.document ?? ""));
+    setVehicleId("");setVehicleSearch("");setPlate("");setModel("");setMileage("");
   }
 
   function chooseVehicle(id: string) {
     setVehicleId(id);
     const vehicle = lookups?.vehicles.find((entry) => entry.id === id);
+    if (vehicle?.customerId && vehicle.customerId !== customerId) {
+      const owner = lookups?.customers.find((entry) => entry.id === vehicle.customerId);
+      if (owner) { setCustomerId(owner.id); setCustomerName(owner.name); setPhone(owner.phone ?? ""); setDocument(formatDocument(owner.document ?? "")); }
+    }
+    setVehicleSearch(vehicle?.model ?? "Veículo sem modelo");
     setPlate(vehicle?.plate ?? "");
     setModel(vehicle?.model ?? "");
     setMileage(vehicle?.mileage ? String(vehicle.mileage) : "");
+  }
+
+  function openQuickCreate(kind: "customer" | "vehicle") {
+    setQuickError(""); setQuickName(""); setQuickDocument(""); setQuickPhone(""); setQuickPlate(""); setQuickModel(""); setQuickCreate(kind);
+  }
+
+  async function saveQuickCreate(event: FormEvent) {
+    event.preventDefault();
+    if (!quickCreate) return;
+    if (quickCreate === "vehicle" && !customerId) { setQuickError("Selecione ou cadastre primeiro o cliente do veículo."); return; }
+    setQuickSaving(true); setQuickError("");
+    try {
+      const response = await fetch(`/api/registries/${quickCreate === "customer" ? "customers" : "vehicles"}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(quickCreate === "customer" ? { name: quickName, document: quickDocument, phone: quickPhone } : { customerId, plate: quickPlate, model: quickModel }),
+      });
+      const record = await response.json();
+      if (!response.ok) throw new Error(record.error ?? "Não foi possível cadastrar.");
+      if (quickCreate === "customer") {
+        setLookups((current) => current ? { ...current, customers: [...current.customers, record].sort((a,b) => a.name.localeCompare(b.name)) } : current);
+        setCustomerId(record.id); setCustomerName(record.name); setPhone(record.phone ?? ""); setDocument(formatDocument(record.document ?? ""));
+        setVehicleId(""); setVehicleSearch(""); setPlate(""); setModel(""); setMileage("");
+      } else {
+        setLookups((current) => current ? { ...current, vehicles: [...current.vehicles, record].sort((a,b) => a.plate.localeCompare(b.plate)) } : current);
+        setVehicleId(record.id); setVehicleSearch(record.model ?? "Veículo sem modelo"); setPlate(record.plate); setModel(record.model ?? ""); setMileage(record.mileage ? String(record.mileage) : "");
+      }
+      setQuickCreate(null);
+    } catch (caught) { setQuickError(caught instanceof Error ? caught.message : "Não foi possível cadastrar."); }
+    finally { setQuickSaving(false); }
   }
 
   function updateItem(key: number, patch: Partial<DraftItem>) {
@@ -182,6 +231,7 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
     event.preventDefault();
     setError("");
     if (!customerName.trim()) return setError("Informe o cliente.");
+    if (items.some((item) => !Number.isInteger(Number(item.quantity)) || Number(item.quantity) < 1)) return setError("A quantidade dos itens deve ser um número inteiro maior que zero.");
     if (items.some((item) => !item.productId)) return setError("Selecione um produto ou serviço cadastrado em todos os itens.");
     if (stockShortages.length && !window.confirm(`Existem produtos sem estoque suficiente:\n\n${stockShortages.map((item) => `${item.name}: disponível ${item.available.toLocaleString("pt-BR")}, necessário ${item.required.toLocaleString("pt-BR")}`).join("\n")}\n\nDeseja salvar o orçamento mesmo assim?`)) return;
 
@@ -236,10 +286,10 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
             <fieldset className="form-section">
               <legend><UserRound size={18} /> Cliente</legend>
               <div className="form-grid three-columns">
-                <label className="field span-2"><span>Cliente *</span><SuggestionInput value={customerName} onChange={typeCustomer} onSelect={chooseCustomer} placeholder="Busque ou digite um novo cliente" required options={(lookups?.customers??[]).map(customer=>({id:customer.id,value:customer.name,code:customer.document||customer.phone,description:customer.name}))}/></label>
+                <label className="field span-2"><span>Cliente *</span><SuggestionInput value={customerName} onChange={typeCustomer} onSelect={chooseCustomer} placeholder="Busque um cliente" required maxResults={lookups?.customers.length} firstAction={{ label: "+ Novo cliente", onClick: () => openQuickCreate("customer") }} options={(lookups?.customers??[]).map(customer=>({id:customer.id,value:customer.name,description:customer.name,searchText:`${customer.document ?? ""} ${customer.phone ?? ""}`}))}/></label>
                 <label className="field"><span>Data do orçamento</span><input type="date" value={budgetDate} onChange={(event) => { const next=event.target.value; setBudgetDate(next); if(next)setValidUntil(addDays(next,7)); }} /></label>
                 <label className="field"><span>Telefone</span><input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="(00) 00000-0000" disabled={Boolean(customerId)} /></label>
-                <label className="field"><span>CPF/CNPJ</span><input value={document} onChange={(event) => setDocument(event.target.value)} placeholder="Documento" disabled={Boolean(customerId)} /></label>
+                <label className="field"><span>CPF/CNPJ</span><input value={document} onChange={(event) => setDocument(formatDocument(event.target.value))} placeholder="000.000.000-00" inputMode="numeric" disabled={Boolean(customerId)} /></label>
                 <label className="field"><span>Mecânico</span><select value={mechanicId} onChange={(event) => setMechanicId(event.target.value)}><option value="">Não definido</option>{lookups?.mechanics.map((mechanic) => <option key={mechanic.id} value={mechanic.id}>{mechanic.name}</option>)}</select></label>
                 <label className="field"><span>Validade do orçamento</span><input type="date" min={budgetDate} value={validUntil} onChange={(event) => setValidUntil(event.target.value)} required /></label>
               </div>
@@ -248,9 +298,9 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
             <fieldset className="form-section">
               <legend><Bike size={18} /> Veículo</legend>
               <div className="form-grid four-columns">
-                <label className="field span-2"><span>Veículo cadastrado</span><select value={vehicleId} onChange={(event) => chooseVehicle(event.target.value)}><option value="">Cadastrar/informar outro veículo</option>{customerVehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.plate} — {vehicle.model ?? "Sem modelo"}</option>)}</select></label>
+                <label className="field span-2"><span>Veículo cadastrado</span><SuggestionInput value={vehicleSearch} onChange={(value) => { setVehicleSearch(value); setVehicleId(""); setPlate(""); setModel(""); }} onSelect={(option) => chooseVehicle(option.id)} placeholder="Digite modelo ou placa; vazio mostra todos" maxResults={lookups?.vehicles.length} firstAction={{ label: "+ Novo veículo", onClick: () => openQuickCreate("vehicle") }} options={(lookups?.vehicles ?? []).map(vehicle => ({ id: vehicle.id, value: vehicle.model ?? "Veículo sem modelo", description: vehicle.model ?? "Veículo sem modelo", detail: `Placa: ${vehicle.plate}`, searchText: vehicle.plate }))} /></label>
                 <label className="field"><span>Placa</span><input value={plate} onChange={(event) => setPlate(event.target.value.toUpperCase())} disabled={Boolean(vehicleId)} /></label>
-                <label className="field"><span>Quilometragem</span><input type="number" min="0" value={mileage} onChange={(event) => setMileage(event.target.value)} /></label>
+                <label className="field"><span>Quilometragem</span><NumberStepper value={mileage} onChange={setMileage} label="Quilometragem" /></label>
                 <label className="field span-2"><span>Modelo/descrição</span><input value={model} onChange={(event) => setModel(event.target.value)} disabled={Boolean(vehicleId)} /></label>
               </div>
             </fieldset>
@@ -271,7 +321,7 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
                     </div>}
                   </div>
                   <select value={item.type} onChange={(event) => updateItem(item.key, { type: event.target.value })}><option>Produto</option><option>Serviço</option><option>Produto/Serviço</option></select>
-                  <input type="number" min="0.001" step="0.001" value={item.quantity} onChange={(event) => updateItem(item.key, { quantity: event.target.value })} aria-label="Quantidade" />
+                  <NumberStepper min={1} step={1} value={item.quantity} onChange={(value) => updateItem(item.key, { quantity: value })} label="Quantidade" required />
                   <MoneyInput value={item.unitPrice} onValueChange={(value) => updateItem(item.key, { unitPrice: value })} aria-label="Valor unitário" required />
                   <button type="button" className="remove-item" onClick={() => setItems((current) => current.filter((entry) => entry.key !== item.key))} disabled={items.length === 1} aria-label="Remover item"><Trash2 size={18} /></button>
                 </div>
@@ -297,6 +347,14 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
           </form>
         )}
       </section>
+      {quickCreate && <div className="quick-create-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setQuickCreate(null)}>
+        <section className="quick-create-modal" role="dialog" aria-modal="true" aria-label={quickCreate === "customer" ? "Novo cliente" : "Novo veículo"}>
+          <header className="modal-header"><div><span className="section-kicker">CADASTRO RÁPIDO</span><h2>{quickCreate === "customer" ? "Novo cliente" : "Novo veículo"}</h2></div><button type="button" className="icon-button" onClick={() => setQuickCreate(null)} aria-label="Fechar"><X /></button></header>
+          <form className="order-form" onSubmit={saveQuickCreate}><div className="form-grid">
+            {quickCreate === "customer" ? <><label className="field"><span>Nome *</span><input value={quickName} onChange={(event) => setQuickName(event.target.value)} required autoFocus /></label><label className="field"><span>CPF/CNPJ</span><input value={quickDocument} onChange={(event) => setQuickDocument(formatDocument(event.target.value))} placeholder="000.000.000-00" inputMode="numeric" /></label><label className="field"><span>Telefone</span><input value={quickPhone} onChange={(event) => setQuickPhone(event.target.value)} /></label></> : <><label className="field"><span>Placa *</span><input value={quickPlate} onChange={(event) => setQuickPlate(event.target.value.toUpperCase())} required autoFocus /></label><label className="field"><span>Modelo/descrição</span><input value={quickModel} onChange={(event) => setQuickModel(event.target.value)} /></label></>}
+          </div>{quickError && <p className="form-error">{quickError}</p>}<footer className="modal-actions"><button type="button" className="secondary-button" onClick={() => setQuickCreate(null)}>Voltar</button><button type="submit" className="primary-button" disabled={quickSaving}>{quickSaving ? "Salvando..." : "Cadastrar e selecionar"}</button></footer></form>
+        </section>
+      </div>}
     </div>
   );
 }

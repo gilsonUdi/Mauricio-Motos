@@ -120,7 +120,7 @@ export async function getDashboardData(companyId: string): Promise<DashboardData
       LEFT JOIN app_live.customers c ON c.id = o.customer_id
       LEFT JOIN app_live.financial_accounts fa ON fa.id=o.financial_account_id AND fa.company_id=o.company_id
       LEFT JOIN app_live.work_order_items i ON i.work_order_id = o.id
-      WHERE o.company_id = $1::uuid
+      WHERE o.company_id = $1::uuid AND o.status <> 'CANCELADO'
       GROUP BY o.id, c.phone, fa.name
       ORDER BY COALESCE(o.sale_date, o.budget_date) DESC NULLS LAST, o.created_at DESC
       LIMIT 150

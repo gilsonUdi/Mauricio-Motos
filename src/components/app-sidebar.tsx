@@ -1,5 +1,7 @@
 "use client";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useEffect, useRef } from "react";
 import {
   Bike,
   BadgeCheck,
@@ -47,15 +49,26 @@ const entries: Array<{ id: Permission | "orcamentos"; label: string; icon: typeo
 
 export function AppSidebar({ active }: { active: string }) {
   const { enabled, user } = useAuth();
+  const pathname = usePathname();
+  const navRef = useRef<HTMLElement>(null);
+  const current = entries.find((entry) => entry.href === pathname)?.id ?? (pathname.startsWith("/conferencia/") ? "conferencia" : active);
+  useEffect(() => {
+    const nav = navRef.current;
+    const item = nav?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (nav && item) {
+      const top = item.offsetTop - nav.offsetTop;
+      if (top < nav.scrollTop || top + item.offsetHeight > nav.scrollTop + nav.clientHeight) nav.scrollTop = Math.max(0, top - nav.clientHeight / 3);
+    }
+  }, [current]);
   const visibleEntries = entries.filter((entry) => !enabled || user?.role === "ADMIN" || (entry.id === "orcamentos" ? user?.permissions.includes("atendimento") : user?.permissions.includes(entry.id)));
   async function logout() { await fetch("/api/auth/logout", { method: "POST" }); window.location.assign("/login"); }
   return (
     <aside className="sidebar">
       <Link className="brand-mark" href="/" aria-label="Ir para o início"><Wrench size={25} /></Link>
       {enabled && user?.companyName && <span className="tenant-name" title={user.companyName}>{user.companyName}</span>}
-      <nav aria-label="Navegação principal">
+      <nav ref={navRef} aria-label="Navegação principal">
         {visibleEntries.map(({ id, label, icon: Icon, href }) => href ? (
-          <Link className={`nav-button ${active === id ? "active" : ""}`} href={href} key={id} title={label} aria-current={active===id?"page":undefined}>
+          <Link className={`nav-button ${current === id ? "active" : ""}`} href={href} key={id} title={label} aria-current={current===id?"page":undefined}>
             <Icon size={19} aria-hidden="true" /><span>{label}</span>
           </Link>
         ) : (

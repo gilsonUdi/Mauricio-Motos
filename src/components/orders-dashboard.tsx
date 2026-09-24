@@ -8,6 +8,7 @@ import {
   ClipboardList,
   Copy,
   Download,
+  ExternalLink,
   FileText,
   Gauge,
   CalendarClock,
@@ -20,7 +21,7 @@ import {
   WalletCards,
   XCircle,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { BudgetApprovalModal } from "@/components/budget-approval-modal";
 import { BudgetFollowUpModal } from "@/components/budget-follow-up-modal";
@@ -36,7 +37,8 @@ const statusLabels: Record<OrderStatus, string> = {
 };
 
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
-type BudgetScope = "VIGENTES" | "ENVIADOS" | "RETORNOS" | "VENCIDOS" | "APROVADOS" | "CANCELADOS" | "TODOS";
+type BudgetScope = "VIGENTES" | "ENVIADOS" | "RETORNOS" | "VENCIDOS" | "APROVADOS" | "TODOS";
+type HistoryEntry = { id:string; number:string; status:OrderStatus; budgetDate?:string; saleDate?:string; plate?:string; model?:string; notes?:string; total:number; items:Array<{name:string;type:string;quantity:number}> };
 const currentDateKey = () => new Date().toLocaleDateString("en-CA");
 const isExpired = (order: WorkOrder) => order.status === "ORCAMENTO" && Boolean(order.validUntil && order.validUntil < currentDateKey());
 const isFollowUpDue = (order:WorkOrder) => order.status === "ORCAMENTO" && Boolean(order.nextFollowUpAt && new Date(order.nextFollowUpAt).getTime() <= Date.now());
@@ -80,6 +82,9 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
   const [duplicatingId, setDuplicatingId] = useState("");
   const [sharingId, setSharingId] = useState("");
   const [followingUpOrder, setFollowingUpOrder] = useState<WorkOrder | null>(null);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [historyLoadedFor, setHistoryLoadedFor] = useState("");
+  const [historyError, setHistoryError] = useState("");
 
   const filtered = useMemo(() => orders.filter((order) => {
     const haystack = `${order.number} ${order.customer} ${order.plate ?? ""} ${order.model ?? ""}`.toLowerCase();
@@ -90,16 +95,25 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
       : budgetScope === "RETORNOS" ? isFollowUpDue(order)
       : budgetScope === "VENCIDOS" ? isExpired(order)
       : budgetScope === "APROVADOS" ? order.status === "PEDIDO" || order.status === "VENDA_REALIZADA"
-      : order.status === "CANCELADO";
+      : false;
     return matchesScope && haystack.includes(query.toLowerCase());
   }), [budgetMode, budgetScope, filter, orders, query]);
   const selected = filtered.find((order) => order.id === selectedId) ?? filtered[0];
+  const historyEntries = initialData.connected ? history : orders.filter((order) => order.customerId === selected?.customerId).map((order) => ({ ...order, items:order.items.map((item) => ({ name:item.name,type:item.type,quantity:item.quantity })) }));
+  const historyLoading = initialData.connected && Boolean(selected?.customerId) && historyLoadedFor !== selected.customerId;
+
+  useEffect(() => {
+    if (!selected?.customerId || !initialData.connected) return;
+    const controller = new AbortController();
+    const customerId = selected.customerId;
+    fetch(`/api/orders/history?customerId=${encodeURIComponent(selected.customerId)}`, { signal:controller.signal })
+      .then(async (response) => { const payload = await response.json(); if (!response.ok) throw new Error(payload.error ?? "Falha ao carregar o histórico."); setHistory(payload.orders ?? []); setHistoryError(""); setHistoryLoadedFor(customerId); })
+      .catch((error) => { if (error?.name !== "AbortError") { setHistoryError(error instanceof Error ? error.message : "Falha ao carregar o histórico."); setHistoryLoadedFor(customerId); } });
+    return () => controller.abort();
+  }, [selected?.customerId, selected?.id, initialData.connected]);
 
   const totals = useMemo(() => ({
     open: orders.filter((order) => order.status === "ORCAMENTO").length,
-    inProgress: orders.filter((order) => order.status === "PEDIDO").length,
-    completed: orders.filter((order) => order.status === "VENDA_REALIZADA").length,
-    revenue: orders.filter((order) => order.status === "VENDA_REALIZADA").reduce((sum, order) => sum + order.total, 0),
   }), [orders]);
   const budgetTotals = useMemo(() => ({
     openValue: orders.filter((order) => order.status === "ORCAMENTO").reduce((sum, order) => sum + order.total, 0),
@@ -137,6 +151,18 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
     if (status === "VENDA_REALIZADA") setClosingSale(null);
     if (status === "PEDIDO") setApprovingOrder(null);
     setNotice(`Ordem ${selected.number} atualizada para ${statusLabels[status].toLowerCase()}.`);
+  }
+
+  async function deleteBudget() {
+    if (!selected || !window.confirm(`Excluir definitivamente o orçamento ${selected.number}? Esta ação não poderá ser desfeita.`)) return;
+    if (!initialData.connected) { setOrders((current) => current.filter((order) => order.id !== selected.id)); setNotice(`Demonstração: orçamento ${selected.number} excluído.`); return; }
+    try {
+      const response = await fetch(`/api/orders/${selected.id}`, { method:"DELETE" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "Não foi possível excluir o orçamento.");
+      setOrders((current) => current.filter((order) => order.id !== selected.id));
+      setNotice(`Orçamento ${selected.number} excluído definitivamente.`);
+    } catch (error) { setNotice(error instanceof Error ? error.message : "Não foi possível excluir o orçamento."); }
   }
 
   function orderSaved(order: WorkOrder) {
@@ -245,18 +271,12 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
 
         {mobileMenu && <div className="mobile-shortcuts">Atendimento · Orçamentos · Clientes · Estoque · Financeiro</div>}
 
-        <section className="stats-grid" aria-label={budgetMode ? "Resumo dos orçamentos" : "Resumo do atendimento"}>
+        {budgetMode && <section className="stats-grid" aria-label="Resumo dos orçamentos">
           <StatCard label="Orçamentos abertos" value={String(totals.open)} tone="amber" />
-          {budgetMode ? <>
             <StatCard label="Valor em aberto" value={currency.format(budgetTotals.openValue)} />
             <StatCard label="Aprovados" value={String(budgetTotals.approved)} tone="green" />
             <StatCard label="Vencidos" value={String(budgetTotals.expired)} />
-          </> : <>
-            <StatCard label="Em execução" value={String(totals.inProgress)} tone="blue" />
-            <StatCard label="Concluídos" value={String(totals.completed)} tone="green" />
-            <StatCard label="Vendas no painel" value={currency.format(totals.revenue)} />
-          </>}
-        </section>
+        </section>}
 
         <section className="service-board">
           <div className="orders-column">
@@ -267,9 +287,9 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
             <div className="filters">
               <label className="search-box"><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cliente, pedido ou placa" /></label>
               {budgetMode ? <select value={budgetScope} onChange={(event) => setBudgetScope(event.target.value as BudgetScope)}>
-                <option value="VIGENTES">Vigentes</option><option value="ENVIADOS">Enviados aguardando retorno</option><option value="RETORNOS">Retornos para hoje ou atrasados</option><option value="VENCIDOS">Vencidos</option><option value="APROVADOS">Aprovados</option><option value="CANCELADOS">Cancelados</option><option value="TODOS">Todos</option>
+                <option value="VIGENTES">Vigentes</option><option value="ENVIADOS">Enviados aguardando retorno</option><option value="RETORNOS">Retornos para hoje ou atrasados</option><option value="VENCIDOS">Vencidos</option><option value="APROVADOS">Aprovados</option><option value="TODOS">Todos</option>
               </select> : <select value={filter} onChange={(event) => setFilter(event.target.value as OrderStatus | "TODOS")}>
-                <option value="TODOS">Todos os status</option>{Object.entries(statusLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+                <option value="TODOS">Todos os status</option>{Object.entries(statusLabels).filter(([value]) => value !== "CANCELADO").map(([value, label]) => <option value={value} key={value}>{label}</option>)}
               </select>}
             </div>
             <div className="order-list">
@@ -314,6 +334,14 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
 
                 <div className="service-notes"><Gauge size={18} /><div><span>Observações</span><p>{selected.notes ?? "Nenhuma observação registrada."}</p></div></div>
 
+                <section className="customer-history" aria-label="Histórico do cliente"><h3>Histórico de serviços do cliente</h3>
+                  {!selected.customerId ? <p>Este orçamento não está vinculado a um cadastro de cliente.</p> : historyLoading ? <p>Carregando histórico...</p> : historyError ? <p role="alert">{historyError}</p> : !historyEntries.length ? <p>Nenhum serviço anterior encontrado.</p> : historyEntries.map((entry) => <article key={entry.id} className="history-entry">
+                    <div><strong>#{entry.number} · {statusLabels[entry.status]}</strong><span>{formatDate(entry.saleDate ?? entry.budgetDate)} · {entry.model ?? "Veículo não informado"}{entry.plate ? ` · ${entry.plate}` : ""}</span></div>
+                    <p>{entry.items.map((item) => `${item.quantity}× ${item.name}`).join(" · ") || "Sem itens registrados"}</p>
+                    {entry.notes && <p><b>Observações:</b> {entry.notes}</p>}
+                  </article>)}
+                </section>
+
                 {selected.validUntil && <div className={`service-notes validity-record ${isExpired(selected) ? "expired" : ""}`}><CalendarClock size={18} /><div><span>Validade do orçamento</span><p>{formatDate(selected.validUntil)}{isExpired(selected) ? " · prazo vencido" : selected.status === "ORCAMENTO" ? " · vigente" : ""}</p></div></div>}
 
                 {selected.lastSharedAt && <div className="service-notes sharing-record"><Share2 size={18} /><div><span>Compartilhamento</span><p>Último envio em {formatDateTime(selected.lastSharedAt)} · {selected.shareCount ?? 1} envio(s)</p></div></div>}
@@ -327,7 +355,8 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
                 {Boolean(selected.stockWarningItems?.length) && <div className="service-notes stock-warning-record"><AlertTriangle size={18} /><div><span>Venda concluída sem estoque</span><p>{selected.stockWarningItems!.map((item) => `${item.name} (saldo ${item.currentStock.toLocaleString("pt-BR")})`).join(" · ")}<br/><small>O aviso desaparecerá quando todos esses produtos voltarem a ter saldo não negativo.</small></p></div></div>}
 
                 <div className="actions-bar">
-                  <a className="action-button" href={`/api/orders/${selected.id}/pdf`} download><Download size={18} /> Baixar PDF</a>
+                  <a className="action-button" href={`/api/orders/${selected.id}/pdf`} target="_blank" rel="noopener noreferrer"><ExternalLink size={18} /> Abrir PDF</a>
+                  <a className="action-button" href={`/api/orders/${selected.id}/pdf?download=1`} download><Download size={18} /> Baixar PDF</a>
                   {selected.status === "ORCAMENTO" && <button className="action-button green" onClick={() => void shareBudget()} disabled={Boolean(sharingId)}>{sharingId === selected.id ? <LoaderCircle className="spin" size={18} /> : <Share2 size={18} />}{sharingId === selected.id ? "Preparando..." : "Compartilhar PDF"}</button>}
                   {selected.status === "ORCAMENTO" && <button className="action-button" onClick={() => setFollowingUpOrder(selected)}><MessageCircleMore size={18} /> Registrar contato</button>}
                   <button className="action-button" onClick={() => void duplicateOrder()} disabled={Boolean(duplicatingId)}>{duplicatingId === selected.id ? <LoaderCircle className="spin" size={18} /> : <Copy size={18} />}{duplicatingId === selected.id ? "Criando..." : "Criar nova versão"}</button>
@@ -335,7 +364,7 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
                   {selected.status === "ORCAMENTO" && <button className="action-button amber" onClick={() => setApprovingOrder(selected)}><ClipboardList size={18} /> Registrar aprovação</button>}
                   {selected.status !== "VENDA_REALIZADA" && <button className="action-button green" onClick={() => setClosingSale(selected)}><CheckCircle2 size={18} /> Concluir venda</button>}
                   {selected.status !== "ORCAMENTO" && <button className="action-button" onClick={() => changeStatus("ORCAMENTO")}><FileText size={18} /> Retornar a orçamento</button>}
-                  {selected.status !== "CANCELADO" && <button className="action-button danger" onClick={() => changeStatus("CANCELADO")}><XCircle size={18} /> Cancelar</button>}
+                  {selected.status === "ORCAMENTO" && <button className="action-button danger" onClick={() => void deleteBudget()}><XCircle size={18} /> Cancelar e excluir</button>}
                 </div>
               </>
             ) : <div className="empty-state">Selecione uma ordem para ver os detalhes.</div>}

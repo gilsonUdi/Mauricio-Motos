@@ -15,7 +15,7 @@ function fileName(number: string) {
   return `orcamento-${safeNumber}.pdf`;
 }
 
-export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
+export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   const pool = getPool();
 
@@ -119,7 +119,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="${fileName(order.number)}"`,
+        "Content-Disposition": `${new URL(request.url).searchParams.has("download") ? "attachment" : "inline"}; filename="${fileName(order.number)}"`,
         "Cache-Control": "private, no-store",
       },
     });

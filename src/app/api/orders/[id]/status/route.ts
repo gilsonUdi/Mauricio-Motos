@@ -48,6 +48,9 @@ export async function PATCH(
   if (!body.status || !validStatuses.has(body.status)) {
     return NextResponse.json({ error: "Status inválido." }, { status: 400 });
   }
+  if (body.status === "CANCELADO") {
+    return NextResponse.json({ error: "Orçamentos devem ser excluídos pelo botão Cancelar e excluir. Pedidos e vendas não podem ser excluídos por esta ação." }, { status: 409 });
+  }
 
   const client = await pool.connect();
   const stockShortages: StockShortage[] = [];

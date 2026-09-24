@@ -7,6 +7,8 @@ export type SuggestionOption = {
   value: string;
   code?: string;
   description: string;
+  searchText?: string;
+  detail?: string;
 };
 
 type Props = {
@@ -18,18 +20,20 @@ type Props = {
   required?: boolean;
   className?: string;
   emptyMessage?: string;
+  firstAction?: { label: string; onClick: () => void };
+  maxResults?: number;
 };
 
 const normalize = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR").trim();
 
-export function SuggestionInput({ value, options, onChange, onSelect, placeholder, required, className = "", emptyMessage = "Nenhuma opção encontrada." }: Props) {
+export function SuggestionInput({ value, options, onChange, onSelect, placeholder, required, className = "", emptyMessage = "Nenhuma opção encontrada.", firstAction, maxResults = 50 }: Props) {
   const listId = useId();
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const filtered = useMemo(() => {
     const term = normalize(value);
-    return options.filter((option) => !term || normalize(`${option.code ?? ""} ${option.description} ${option.value}`).includes(term)).slice(0, 50);
-  }, [options, value]);
+    return options.filter((option) => !term || normalize(`${option.code ?? ""} ${option.description} ${option.value} ${option.searchText ?? ""}`).includes(term)).slice(0, maxResults);
+  }, [options, value, maxResults]);
 
   function select(option: SuggestionOption) {
     onSelect(option);
@@ -70,6 +74,7 @@ export function SuggestionInput({ value, options, onChange, onSelect, placeholde
       aria-controls={listId}
     />
     {open && <div className="suggestion-results" role="listbox" id={listId}>
+      {firstAction && <button type="button" className="suggestion-new" onMouseDown={(event) => event.preventDefault()} onClick={(event) => { event.preventDefault(); event.stopPropagation(); setOpen(false); firstAction.onClick(); }}>{firstAction.label}</button>}
       {filtered.map((option, index) => <button
         type="button"
         role="option"
@@ -82,6 +87,7 @@ export function SuggestionInput({ value, options, onChange, onSelect, placeholde
       >
         {option.code && <><b>{option.code}</b><span aria-hidden="true">—</span></>}
         <span>{option.description}</span>
+        {option.detail && <small>{option.detail}</small>}
       </button>)}
       {!filtered.length && <p>{emptyMessage}</p>}
     </div>}
