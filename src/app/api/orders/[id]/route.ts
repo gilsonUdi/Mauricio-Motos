@@ -75,14 +75,14 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
 
     let plate = clean(body.vehiclePlate)?.toUpperCase();
     let model = clean(body.vehicleModel);
-    let mileage = Math.max(0, Math.trunc(Number(body.mileage) || 0)) || undefined;
+    let mileage = body.mileage === undefined ? undefined : Math.max(0, Math.trunc(Number(body.mileage) || 0));
     const vehicleId = validUuid(body.vehicleId);
     if (vehicleId) {
       const vehicle = await client.query(`SELECT plate,description,mileage,customer_id::text FROM app_live.vehicles WHERE id=$1::uuid AND company_id=$2::uuid`, [vehicleId,scope.companyId]);
       if (!vehicle.rowCount) throw new Error("VEHICLE_NOT_FOUND");
       if (vehicle.rows[0].customer_id && vehicle.rows[0].customer_id !== customerId) throw new Error("VEHICLE_CUSTOMER_MISMATCH");
-      plate = vehicle.rows[0].plate;
-      model = vehicle.rows[0].description ?? model;
+      plate = plate ?? vehicle.rows[0].plate;
+      model = body.vehicleModel !== undefined ? model : vehicle.rows[0].description ?? undefined;
       mileage = mileage ?? vehicle.rows[0].mileage ?? undefined;
     } else if (plate) {
       const normalizedPlate = plate.replace(/[^A-Z0-9]/g, "");

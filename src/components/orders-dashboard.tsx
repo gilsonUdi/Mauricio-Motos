@@ -334,13 +334,13 @@ export function OrdersDashboard({ initialData, mode = "atendimento" }: { initial
 
                 <div className="service-notes"><Gauge size={18} /><div><span>Observações</span><p>{selected.notes ?? "Nenhuma observação registrada."}</p></div></div>
 
-                <section className="customer-history" aria-label="Histórico do cliente"><h3>Histórico de serviços do cliente</h3>
+                <details className="customer-history" key={`history-${selected.id}`}><summary><span>Histórico de serviços do cliente</span><small>{historyLoading ? "Carregando..." : `${historyEntries.length} registro(s)`}</small></summary>
                   {!selected.customerId ? <p>Este orçamento não está vinculado a um cadastro de cliente.</p> : historyLoading ? <p>Carregando histórico...</p> : historyError ? <p role="alert">{historyError}</p> : !historyEntries.length ? <p>Nenhum serviço anterior encontrado.</p> : historyEntries.map((entry) => <article key={entry.id} className="history-entry">
                     <div><strong>#{entry.number} · {statusLabels[entry.status]}</strong><span>{formatDate(entry.saleDate ?? entry.budgetDate)} · {entry.model ?? "Veículo não informado"}{entry.plate ? ` · ${entry.plate}` : ""}</span></div>
                     <p>{entry.items.map((item) => `${item.quantity}× ${item.name}`).join(" · ") || "Sem itens registrados"}</p>
                     {entry.notes && <p><b>Observações:</b> {entry.notes}</p>}
                   </article>)}
-                </section>
+                </details>
 
                 {selected.validUntil && <div className={`service-notes validity-record ${isExpired(selected) ? "expired" : ""}`}><CalendarClock size={18} /><div><span>Validade do orçamento</span><p>{formatDate(selected.validUntil)}{isExpired(selected) ? " · prazo vencido" : selected.status === "ORCAMENTO" ? " · vigente" : ""}</p></div></div>}
 

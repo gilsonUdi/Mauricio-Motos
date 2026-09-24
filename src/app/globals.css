@@ -205,10 +205,19 @@ h3 { font-size: 20px; }
 input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 input[type="number"] { appearance: textfield; -moz-appearance: textfield; }
 .quick-create-backdrop { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; padding: 16px; background: #15191b9c; }
-.quick-create-modal { width: min(520px, 100%); border-radius: 18px; background: var(--surface); box-shadow: 0 25px 80px #0008; }
+.quick-create-modal { width: min(720px, 100%); max-height: min(92vh, 880px); overflow-y: auto; border-radius: 18px; background: var(--surface); box-shadow: 0 25px 80px #0008; }
 .quick-create-modal .order-form { padding: 20px; }
+.quick-create-modal .modal-header { position: sticky; top: 0; }
+.quick-lookup-field { display: flex; min-width: 0; gap: 7px; }
+.quick-lookup-field input { min-width: 0; flex: 1; }
+.quick-lookup-field button { flex: none; display: inline-flex; align-items: center; gap: 5px; padding: 0 10px; border: 1px solid #cec9be; border-radius: 10px; background: #f5eee2; color: var(--ink); font-size: 12px; font-weight: 700; }
 .customer-history { margin: 18px 0; padding: 18px 20px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
-.customer-history h3 { margin-bottom: 12px; }
+.customer-history summary { display: flex; align-items: center; gap: 10px; cursor: pointer; font-family: var(--font-oswald), sans-serif; font-size: 20px; font-weight: 700; list-style: none; }
+.customer-history summary::-webkit-details-marker { display: none; }
+.customer-history summary::before { content: "▸"; color: var(--amber); transition: transform .15s; }
+.customer-history[open] summary::before { transform: rotate(90deg); }
+.customer-history summary small { margin-left: auto; color: var(--muted); font-family: var(--font-inter), sans-serif; font-size: 12px; font-weight: 500; }
+.customer-history[open] summary { margin-bottom: 12px; }
 .customer-history > p { color: var(--muted); }
 .history-entry { padding: 13px 0; border-top: 1px solid var(--line); }
 .history-entry > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }

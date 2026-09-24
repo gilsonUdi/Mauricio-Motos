@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Bike, CirclePlus, LoaderCircle, PackagePlus, Save, Trash2, UserRound, X } from "lucide-react";
+import { AlertTriangle, Bike, CirclePlus, LoaderCircle, PackagePlus, Save, Search, Trash2, UserRound, X } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { OrderLookups, ProductLookup, WorkOrder } from "@/lib/types";
 import { MoneyInput } from "@/components/money-input";
@@ -22,6 +22,28 @@ type Props = {
   onSaved: (order: WorkOrder) => void;
   initialOrder?: WorkOrder;
 };
+
+type QuickField = { key: string; label: string; kind?: "document" | "zip" | "number" | "email"; required?: boolean; placeholder?: string };
+const quickCustomerFields: QuickField[] = [
+  { key: "name", label: "Nome", required: true }, { key: "phone", label: "Telefone" },
+  { key: "email", label: "E-mail", kind: "email" }, { key: "document", label: "CPF/CNPJ", kind: "document" },
+  { key: "zipCode", label: "CEP", kind: "zip" }, { key: "street", label: "Logradouro" },
+  { key: "addressNumber", label: "Número" }, { key: "complement", label: "Complemento" },
+  { key: "district", label: "Bairro" }, { key: "city", label: "Cidade" },
+  { key: "state", label: "UF" }, { key: "defaultPlate", label: "Placa padrão" },
+  { key: "defaultModel", label: "Modelo padrão" },
+];
+const quickVehicleFields: QuickField[] = [
+  { key: "plate", label: "Placa", required: true, placeholder: "ABC1D23" },
+  { key: "model", label: "Modelo/descrição" }, { key: "brand", label: "Marca" },
+  { key: "manufactureYear", label: "Ano de fabricação", kind: "number" },
+  { key: "modelYear", label: "Ano do modelo", kind: "number" },
+  { key: "color", label: "Cor" }, { key: "fuel", label: "Combustível" },
+  { key: "engineDisplacement", label: "Cilindrada" },
+  { key: "registrationCity", label: "Município de registro" },
+  { key: "registrationState", label: "UF de registro" },
+  { key: "mileage", label: "Quilometragem", kind: "number" },
+];
 
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const normalize = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR").trim();
@@ -55,13 +77,10 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
   const [vehicleId, setVehicleId] = useState("");
   const [vehicleSearch, setVehicleSearch] = useState(initialOrder?.model ?? "");
   const [quickCreate, setQuickCreate] = useState<"customer" | "vehicle" | null>(null);
-  const [quickName, setQuickName] = useState("");
-  const [quickDocument, setQuickDocument] = useState("");
-  const [quickPhone, setQuickPhone] = useState("");
-  const [quickPlate, setQuickPlate] = useState("");
-  const [quickModel, setQuickModel] = useState("");
+  const [quickForm, setQuickForm] = useState<Record<string, string>>({});
   const [quickSaving, setQuickSaving] = useState(false);
   const [quickError, setQuickError] = useState("");
+  const [quickLookupLoading, setQuickLookupLoading] = useState<"cep" | "cnpj" | null>(null);
   const [plate, setPlate] = useState(initialOrder?.plate ?? "");
   const [model, setModel] = useState(initialOrder?.model ?? "");
   const [mileage, setMileage] = useState(initialOrder?.mileage ? String(initialOrder.mileage) : "");
@@ -165,18 +184,39 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
   }
 
   function openQuickCreate(kind: "customer" | "vehicle") {
-    setQuickError(""); setQuickName(""); setQuickDocument(""); setQuickPhone(""); setQuickPlate(""); setQuickModel(""); setQuickCreate(kind);
+    setQuickError("");
+    setQuickForm(kind === "customer"
+      ? { name: customerId ? "" : customerName, phone: customerId ? "" : phone, document: customerId ? "" : document }
+      : { customerId, plate: vehicleId ? "" : plate, model: vehicleId ? "" : model });
+    setQuickCreate(kind);
+  }
+
+  function setQuickField(key: string, value: string) {
+    setQuickForm((current) => ({ ...current, [key]: value }));
+  }
+
+  async function lookupQuick(type: "cep" | "cnpj") {
+    const value = (quickForm[type === "cep" ? "zipCode" : "document"] ?? "").replace(/\D/g, "");
+    setQuickLookupLoading(type); setQuickError("");
+    try {
+      const response = await fetch(`/api/registry-lookup?type=${type}&value=${encodeURIComponent(value)}`);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "Não foi possível consultar o cadastro.");
+      setQuickForm((current) => ({ ...current, ...payload, document: payload.document ? formatDocument(String(payload.document)) : current.document,
+        zipCode: payload.zipCode ? String(payload.zipCode).replace(/^(\d{5})(\d{1,3})$/, "$1-$2") : current.zipCode }));
+    } catch (caught) { setQuickError(caught instanceof Error ? caught.message : "Não foi possível consultar o cadastro."); }
+    finally { setQuickLookupLoading(null); }
   }
 
   async function saveQuickCreate(event: FormEvent) {
     event.preventDefault();
     if (!quickCreate) return;
-    if (quickCreate === "vehicle" && !customerId) { setQuickError("Selecione ou cadastre primeiro o cliente do veículo."); return; }
+    if (quickCreate === "vehicle" && !quickForm.customerId) { setQuickError("Selecione o cliente do veículo."); return; }
     setQuickSaving(true); setQuickError("");
     try {
       const response = await fetch(`/api/registries/${quickCreate === "customer" ? "customers" : "vehicles"}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(quickCreate === "customer" ? { name: quickName, document: quickDocument, phone: quickPhone } : { customerId, plate: quickPlate, model: quickModel }),
+        body: JSON.stringify(quickForm),
       });
       const record = await response.json();
       if (!response.ok) throw new Error(record.error ?? "Não foi possível cadastrar.");
@@ -186,6 +226,10 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
         setVehicleId(""); setVehicleSearch(""); setPlate(""); setModel(""); setMileage("");
       } else {
         setLookups((current) => current ? { ...current, vehicles: [...current.vehicles, record].sort((a,b) => a.plate.localeCompare(b.plate)) } : current);
+        if (record.customerId && record.customerId !== customerId) {
+          const owner = lookups?.customers.find((entry) => entry.id === record.customerId);
+          if (owner) { setCustomerId(owner.id); setCustomerName(owner.name); setPhone(owner.phone ?? ""); setDocument(formatDocument(owner.document ?? "")); }
+        }
         setVehicleId(record.id); setVehicleSearch(record.model ?? "Veículo sem modelo"); setPlate(record.plate); setModel(record.model ?? ""); setMileage(record.mileage ? String(record.mileage) : "");
       }
       setQuickCreate(null);
@@ -248,7 +292,7 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
           vehicleId: vehicleId || undefined,
           vehiclePlate: plate,
           vehicleModel: model,
-          mileage: Number(mileage) || undefined,
+          mileage: mileage.trim() === "" ? undefined : Number(mileage),
           mechanicId: mechanicId || undefined,
           budgetDate,
           validUntil,
@@ -299,9 +343,9 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
               <legend><Bike size={18} /> Veículo</legend>
               <div className="form-grid four-columns">
                 <label className="field span-2"><span>Veículo cadastrado</span><SuggestionInput value={vehicleSearch} onChange={(value) => { setVehicleSearch(value); setVehicleId(""); setPlate(""); setModel(""); }} onSelect={(option) => chooseVehicle(option.id)} placeholder="Digite modelo ou placa; vazio mostra todos" maxResults={lookups?.vehicles.length} firstAction={{ label: "+ Novo veículo", onClick: () => openQuickCreate("vehicle") }} options={(lookups?.vehicles ?? []).map(vehicle => ({ id: vehicle.id, value: vehicle.model ?? "Veículo sem modelo", description: vehicle.model ?? "Veículo sem modelo", detail: `Placa: ${vehicle.plate}`, searchText: vehicle.plate }))} /></label>
-                <label className="field"><span>Placa</span><input value={plate} onChange={(event) => setPlate(event.target.value.toUpperCase())} disabled={Boolean(vehicleId)} /></label>
+                <label className="field"><span>Placa</span><SuggestionInput value={plate} onChange={(value) => setPlate(value.toUpperCase())} onSelect={(option) => chooseVehicle(option.id)} placeholder="Digite para buscar placas" maxResults={lookups?.vehicles.length} options={(lookups?.vehicles ?? []).map((vehicle) => ({ id:vehicle.id, value:vehicle.plate, description:vehicle.plate, detail:vehicle.model ?? "Sem modelo" }))} /></label>
                 <label className="field"><span>Quilometragem</span><NumberStepper value={mileage} onChange={setMileage} label="Quilometragem" /></label>
-                <label className="field span-2"><span>Modelo/descrição</span><input value={model} onChange={(event) => setModel(event.target.value)} disabled={Boolean(vehicleId)} /></label>
+                <label className="field span-2"><span>Modelo/descrição</span><input value={model} onChange={(event) => { setModel(event.target.value); setVehicleSearch(event.target.value); }} /></label>
               </div>
             </fieldset>
 
@@ -350,8 +394,11 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
       {quickCreate && <div className="quick-create-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setQuickCreate(null)}>
         <section className="quick-create-modal" role="dialog" aria-modal="true" aria-label={quickCreate === "customer" ? "Novo cliente" : "Novo veículo"}>
           <header className="modal-header"><div><span className="section-kicker">CADASTRO RÁPIDO</span><h2>{quickCreate === "customer" ? "Novo cliente" : "Novo veículo"}</h2></div><button type="button" className="icon-button" onClick={() => setQuickCreate(null)} aria-label="Fechar"><X /></button></header>
-          <form className="order-form" onSubmit={saveQuickCreate}><div className="form-grid">
-            {quickCreate === "customer" ? <><label className="field"><span>Nome *</span><input value={quickName} onChange={(event) => setQuickName(event.target.value)} required autoFocus /></label><label className="field"><span>CPF/CNPJ</span><input value={quickDocument} onChange={(event) => setQuickDocument(formatDocument(event.target.value))} placeholder="000.000.000-00" inputMode="numeric" /></label><label className="field"><span>Telefone</span><input value={quickPhone} onChange={(event) => setQuickPhone(event.target.value)} /></label></> : <><label className="field"><span>Placa *</span><input value={quickPlate} onChange={(event) => setQuickPlate(event.target.value.toUpperCase())} required autoFocus /></label><label className="field"><span>Modelo/descrição</span><input value={quickModel} onChange={(event) => setQuickModel(event.target.value)} /></label></>}
+          <form className="order-form" onSubmit={saveQuickCreate}><div className="form-grid registry-form-grid">
+            {quickCreate === "vehicle" && <label className="field span-2"><span>Cliente *</span><select value={quickForm.customerId ?? ""} onChange={(event) => setQuickField("customerId",event.target.value)} required><option value="">Selecione um cliente</option>{(lookups?.customers ?? []).map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></label>}
+            {(quickCreate === "customer" ? quickCustomerFields : quickVehicleFields).map((field, index) => <label className={`field ${field.key === "name" || field.key === "model" ? "span-2" : ""}`} key={field.key}><span>{field.label}{field.required ? " *" : ""}</span>
+              {field.kind === "number" ? <NumberStepper value={quickForm[field.key] ?? ""} onChange={(value) => setQuickField(field.key,value)} label={field.label} /> : field.kind === "document" || field.kind === "zip" ? <div className="quick-lookup-field"><input value={quickForm[field.key] ?? ""} onChange={(event) => setQuickField(field.key,field.kind === "document" ? formatDocument(event.target.value) : event.target.value.replace(/\D/g, "").slice(0,8).replace(/^(\d{5})(\d)/,"$1-$2"))} inputMode="numeric" placeholder={field.kind === "document" ? "000.000.000-00" : "00000-000"} /><button type="button" onClick={() => void lookupQuick(field.kind === "document" ? "cnpj" : "cep")} disabled={Boolean(quickLookupLoading) || (quickForm[field.key] ?? "").replace(/\D/g, "").length !== (field.kind === "document" ? 14 : 8)}>{quickLookupLoading === (field.kind === "document" ? "cnpj" : "cep") ? <LoaderCircle className="spin" size={16} /> : <Search size={16} />} Buscar</button></div> : <input value={quickForm[field.key] ?? ""} onChange={(event) => setQuickField(field.key,field.key === "plate" || field.key === "state" || field.key === "registrationState" || field.key === "defaultPlate" ? event.target.value.toUpperCase() : event.target.value)} type={field.kind === "email" ? "email" : "text"} required={field.required} placeholder={field.placeholder} autoFocus={index === 0 && quickCreate === "customer"} />}
+            </label>)}
           </div>{quickError && <p className="form-error">{quickError}</p>}<footer className="modal-actions"><button type="button" className="secondary-button" onClick={() => setQuickCreate(null)}>Voltar</button><button type="submit" className="primary-button" disabled={quickSaving}>{quickSaving ? "Salvando..." : "Cadastrar e selecionar"}</button></footer></form>
         </section>
       </div>}

@@ -76,7 +76,7 @@ export async function POST(request: Request) {
 
     let plate = clean(body.vehiclePlate)?.toUpperCase();
     let model = clean(body.vehicleModel);
-    let mileage = Math.max(0, Math.trunc(Number(body.mileage) || 0)) || undefined;
+    let mileage = body.mileage === undefined ? undefined : Math.max(0, Math.trunc(Number(body.mileage) || 0));
     const vehicleId = validUuid(body.vehicleId);
 
     if (vehicleId) {
@@ -86,14 +86,16 @@ export async function POST(request: Request) {
       );
       if (!found.rowCount) throw new Error("VEHICLE_NOT_FOUND");
       if (found.rows[0].customer_id && found.rows[0].customer_id !== customerId) throw new Error("VEHICLE_CUSTOMER_MISMATCH");
-      plate = found.rows[0].plate;
-      model = found.rows[0].description ?? model;
+      plate = plate ?? found.rows[0].plate;
+      model = body.vehicleModel !== undefined ? model : found.rows[0].description ?? undefined;
       mileage = mileage ?? found.rows[0].mileage ?? undefined;
     } else if (plate) {
-      await client.query(
+      const normalizedPlate = plate.replace(/[^A-Z0-9]/g, "");
+      const existingVehicle = await client.query(`SELECT 1 FROM app_live.vehicles WHERE customer_id=$1::uuid AND normalized_plate=$2 AND company_id=$3::uuid LIMIT 1`, [customerId,normalizedPlate,scope.companyId]);
+      if (!existingVehicle.rowCount) await client.query(
         `INSERT INTO app_live.vehicles (company_id,customer_id,plate,normalized_plate,description,mileage)
          VALUES ($1::uuid,$2::uuid,$3,$4,$5,$6)`,
-        [scope.companyId,customerId, plate, plate.replace(/[^A-Z0-9]/g, ""), model ?? null, mileage ?? null],
+        [scope.companyId,customerId, plate, normalizedPlate, model ?? null, mileage ?? null],
       );
     }
 
