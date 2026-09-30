@@ -11,6 +11,7 @@ export async function GET(request: Request) {
   const scope = await getTenantScope();
   if (!scope) return NextResponse.json({ error: "Selecione uma empresa." }, { status: 403 });
   const customerId = new URL(request.url).searchParams.get("customerId") ?? "";
+  const includeCanceled = new URL(request.url).searchParams.get("includeCanceled") === "true";
   if (!uuid.test(customerId)) return NextResponse.json({ error: "Cliente inválido." }, { status: 400 });
   try {
     const result = await pool.query(`
@@ -21,10 +22,10 @@ export async function GET(request: Request) {
           ORDER BY i.created_at) FILTER (WHERE i.id IS NOT NULL),'[]'::jsonb) AS items
       FROM app_live.work_orders o
       LEFT JOIN app_live.work_order_items i ON i.work_order_id=o.id
-      WHERE o.company_id=$1::uuid AND o.customer_id=$2::uuid AND o.status<>'CANCELADO'
+      WHERE o.company_id=$1::uuid AND o.customer_id=$2::uuid AND ($3::boolean OR o.status<>'CANCELADO')
       GROUP BY o.id
       ORDER BY COALESCE(o.sale_date,o.budget_date) DESC NULLS LAST,o.created_at DESC
-    `, [scope.companyId,customerId]);
+    `, [scope.companyId,customerId,includeCanceled]);
     return NextResponse.json({ orders: result.rows.map((row) => ({
       id: row.id, number: row.number, status: row.status, budgetDate: row.budget_date,
       saleDate: row.sale_date, plate: row.plate, model: row.model, notes: row.notes,

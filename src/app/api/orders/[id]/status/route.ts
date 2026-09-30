@@ -48,10 +48,6 @@ export async function PATCH(
   if (!body.status || !validStatuses.has(body.status)) {
     return NextResponse.json({ error: "Status inválido." }, { status: 400 });
   }
-  if (body.status === "CANCELADO") {
-    return NextResponse.json({ error: "Orçamentos devem ser excluídos pelo botão Cancelar e excluir. Pedidos e vendas não podem ser excluídos por esta ação." }, { status: 409 });
-  }
-
   const client = await pool.connect();
   const stockShortages: StockShortage[] = [];
   try {
@@ -71,6 +67,10 @@ export async function PATCH(
     }
 
     const previousStatus = current.rows[0].status as OrderStatus;
+    if (previousStatus === "CANCELADO" || (body.status === "CANCELADO" && previousStatus === "ORCAMENTO")) {
+      await client.query("ROLLBACK");
+      return NextResponse.json({ error: "Orçamentos devem ser excluídos; somente pedidos e vendas podem ser cancelados por esta ação." }, { status: 409 });
+    }
     const enteringApproval = previousStatus === "ORCAMENTO" && (body.status === "PEDIDO" || body.status === "VENDA_REALIZADA");
     const approvedByCustomer = typeof body.approvedByCustomer === "string" ? body.approvedByCustomer.trim().slice(0, 160) : "";
     const allowedApprovalMethods = new Set(["WhatsApp", "Telefone", "Presencial", "E-mail", "Outro", "Conclusão direta"]);

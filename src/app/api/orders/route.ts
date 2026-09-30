@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getPool } from "@/lib/db";
 import type { WorkOrder } from "@/lib/types";
 import { getTenantScope } from "@/lib/auth";
+import { getDashboardData } from "@/lib/orders";
 import { parseBrazilianNumber } from "@/lib/numbers";
 
 type ItemInput = {
@@ -35,6 +36,24 @@ const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 const clean = (value?: string) => value?.trim() || undefined;
 const validUuid = (value?: string) => value && uuidPattern.test(value) ? value : undefined;
 const money = (value: unknown) => Math.round(Math.max(0, parseBrazilianNumber(value)) * 100) / 100;
+
+export async function GET(request: Request) {
+  const scope = await getTenantScope();
+  if (!scope) return NextResponse.json({ error: "Selecione uma empresa." }, { status: 403 });
+  const params = new URL(request.url).searchParams;
+  const status = params.get("status") ?? "TODOS";
+  if (!["TODOS", "ORCAMENTO", "PEDIDO", "VENDA_REALIZADA"].includes(status)) {
+    return NextResponse.json({ error: "Filtro de status inválido." }, { status: 400 });
+  }
+  const data = await getDashboardData(scope.companyId, {
+    search: params.get("search") ?? "",
+    status: status as "TODOS" | "ORCAMENTO" | "PEDIDO" | "VENDA_REALIZADA",
+    offset: Number(params.get("offset") ?? 0) || 0,
+    limit: 100,
+  });
+  if (!data.connected) return NextResponse.json({ error: "Não foi possível carregar os atendimentos." }, { status: 503 });
+  return NextResponse.json({ orders: data.orders, hasMore: data.orders.length === 100 });
+}
 
 export async function POST(request: Request) {
   const pool = getPool();

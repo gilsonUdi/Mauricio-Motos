@@ -45,9 +45,14 @@ type OrderRow = {
   items: Array<{ id: string; productId?: string; name: string; type: string; quantity: number; unitPrice: number; total: number }> | null;
 };
 
-export async function getDashboardData(companyId: string): Promise<DashboardData> {
+export async function getDashboardData(companyId: string, options: { search?: string; status?: "TODOS" | "ORCAMENTO" | "PEDIDO" | "VENDA_REALIZADA"; offset?: number; limit?: number } = {}): Promise<DashboardData> {
   const pool = getPool();
   if (!pool) return { connected: false, orders: fixtureOrders };
+
+  const search = options.search?.trim().slice(0, 120) ?? "";
+  const status = options.status ?? "TODOS";
+  const offset = Math.max(0, Math.trunc(options.offset ?? 0));
+  const limit = Math.max(1, Math.min(150, Math.trunc(options.limit ?? 150)));
 
   try {
     const result = await pool.query<OrderRow>(`
@@ -121,10 +126,15 @@ export async function getDashboardData(companyId: string): Promise<DashboardData
       LEFT JOIN app_live.financial_accounts fa ON fa.id=o.financial_account_id AND fa.company_id=o.company_id
       LEFT JOIN app_live.work_order_items i ON i.work_order_id = o.id
       WHERE o.company_id = $1::uuid AND o.status <> 'CANCELADO'
+        AND ($2::text = 'TODOS' OR o.status = $2::text)
+        AND ($3::text = '' OR o.order_number ILIKE '%' || $3 || '%'
+          OR o.customer_name ILIKE '%' || $3 || '%'
+          OR COALESCE(o.vehicle_plate, '') ILIKE '%' || $3 || '%'
+          OR COALESCE(o.vehicle_model, '') ILIKE '%' || $3 || '%')
       GROUP BY o.id, c.phone, fa.name
       ORDER BY COALESCE(o.sale_date, o.budget_date) DESC NULLS LAST, o.created_at DESC
-      LIMIT 150
-    `, [companyId]);
+      LIMIT $4 OFFSET $5
+    `, [companyId, status, search, limit, offset]);
 
     const orders: WorkOrder[] = result.rows.map((row) => ({
       id: row.id,
