@@ -102,12 +102,10 @@ export async function createOrderPdf({ order, companyName = "Maurício Motos", g
   let y = A4.height - margin;
 
   const drawHeader = () => {
-    page.drawImage(logo, { x: margin, y: y - 74, width: 79, height: 74 });
-    page.drawText(safeText(companyName), { x: margin + 90, y: y - 25, font: bold, size: 17, color: colors.ink });
-    page.drawText("OFICINA E SERVIÇOS", { x: margin + 90, y: y - 43, font: bold, size: 7.5, color: colors.accent });
-    drawRight(page, "ORÇAMENTO", A4.width - margin, y - 9, bold, 16);
-    drawRight(page, `Nº ${order.number}${(order.revisionNumber ?? 1) > 1 ? ` · Revisão ${order.revisionNumber}` : ""}`, A4.width - margin, y - 28, regular, 9, colors.muted);
-    y -= 86;
+    page.drawImage(logo, { x: margin, y: y - 112, width: 120, height: 112 });
+    drawRight(page, "ORÇAMENTO", A4.width - margin, y - 20, bold, 16);
+    drawRight(page, `Nº ${order.number}${(order.revisionNumber ?? 1) > 1 ? ` · Revisão ${order.revisionNumber}` : ""}`, A4.width - margin, y - 40, regular, 9, colors.muted);
+    y -= 124;
     page.drawLine({ start: { x: margin, y }, end: { x: A4.width - margin, y }, thickness: 1.2, color: colors.accent });
     y -= 20;
   };
