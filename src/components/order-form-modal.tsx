@@ -7,6 +7,7 @@ import { MoneyInput } from "@/components/money-input";
 import { NumberStepper } from "@/components/number-stepper";
 import { SuggestionInput, type SuggestionOption } from "@/components/suggestion-input";
 import { numberToMoneyInput, parseBrazilianNumber } from "@/lib/numbers";
+import { salePriceFromProfit } from "@/lib/pricing";
 
 type DraftItem = {
   key: number;
@@ -42,7 +43,6 @@ const quickVehicleFields: QuickField[] = [
   { key: "engineDisplacement", label: "Cilindrada" },
   { key: "registrationCity", label: "Município de registro" },
   { key: "registrationState", label: "UF de registro" },
-  { key: "mileage", label: "Quilometragem", kind: "number" },
 ];
 
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
@@ -76,7 +76,8 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
   const [document, setDocument] = useState("");
   const [vehicleId, setVehicleId] = useState("");
   const [vehicleSearch, setVehicleSearch] = useState(initialOrder?.model ?? "");
-  const [quickCreate, setQuickCreate] = useState<"customer" | "vehicle" | null>(null);
+  const [quickCreate, setQuickCreate] = useState<"customer" | "vehicle" | "product" | null>(null);
+  const [quickProductItemKey, setQuickProductItemKey] = useState<number | null>(null);
   const [quickForm, setQuickForm] = useState<Record<string, string>>({});
   const [quickSaving, setQuickSaving] = useState(false);
   const [quickError, setQuickError] = useState("");
@@ -96,8 +97,8 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
     type: item.type || "Produto/Serviço",
     quantity: String(item.quantity),
     unitPrice: numberToMoneyInput(item.unitPrice),
-  })) : [blankItem(1)]);
-  const [nextKey, setNextKey] = useState((initialOrder?.items.length ?? 1) + 1);
+  })) : []);
+  const [nextKey, setNextKey] = useState((initialOrder?.items.length ?? 0) + 1);
   const [activeProductSearch, setActiveProductSearch] = useState<number>();
 
   useEffect(() => {
@@ -183,11 +184,12 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
     setMileage(vehicle?.mileage ? String(vehicle.mileage) : "");
   }
 
-  function openQuickCreate(kind: "customer" | "vehicle") {
+  function openQuickCreate(kind: "customer" | "vehicle" | "product", itemKey?: number) {
     setQuickError("");
-    setQuickForm(kind === "customer"
+    setQuickForm(kind === "product" ? { name: items.find((item) => item.key === itemKey)?.name ?? "", itemKind: "PRODUTO", costPrice: "0,00", salePrice: "0,00", profitMargin: "", stock: "0" } : kind === "customer"
       ? { name: customerId ? "" : customerName, phone: customerId ? "" : phone, document: customerId ? "" : document }
       : { customerId, plate: vehicleId ? "" : plate, model: vehicleId ? "" : model });
+    setQuickProductItemKey(itemKey ?? null);
     setQuickCreate(kind);
   }
 
@@ -214,9 +216,9 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
     if (quickCreate === "vehicle" && !quickForm.customerId) { setQuickError("Selecione o cliente do veículo."); return; }
     setQuickSaving(true); setQuickError("");
     try {
-      const response = await fetch(`/api/registries/${quickCreate === "customer" ? "customers" : "vehicles"}`, {
+      const response = await fetch(`/api/registries/${quickCreate === "customer" ? "customers" : quickCreate === "vehicle" ? "vehicles" : "products"}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(quickForm),
+        body: JSON.stringify(quickCreate === "product" ? { ...quickForm, costPrice: parseBrazilianNumber(quickForm.costPrice), salePrice: parseBrazilianNumber(quickForm.salePrice), profitMargin: quickForm.profitMargin, stock: Number(quickForm.stock || 0) } : quickForm),
       });
       const record = await response.json();
       if (!response.ok) throw new Error(record.error ?? "Não foi possível cadastrar.");
@@ -224,13 +226,17 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
         setLookups((current) => current ? { ...current, customers: [...current.customers, record].sort((a,b) => a.name.localeCompare(b.name)) } : current);
         setCustomerId(record.id); setCustomerName(record.name); setPhone(record.phone ?? ""); setDocument(formatDocument(record.document ?? ""));
         setVehicleId(""); setVehicleSearch(""); setPlate(""); setModel(""); setMileage("");
-      } else {
+      } else if (quickCreate === "vehicle") {
         setLookups((current) => current ? { ...current, vehicles: [...current.vehicles, record].sort((a,b) => a.plate.localeCompare(b.plate)) } : current);
         if (record.customerId && record.customerId !== customerId) {
           const owner = lookups?.customers.find((entry) => entry.id === record.customerId);
           if (owner) { setCustomerId(owner.id); setCustomerName(owner.name); setPhone(owner.phone ?? ""); setDocument(formatDocument(owner.document ?? "")); }
         }
         setVehicleId(record.id); setVehicleSearch(record.model ?? "Veículo sem modelo"); setPlate(record.plate); setModel(record.model ?? ""); setMileage(record.mileage ? String(record.mileage) : "");
+      } else {
+        const product: ProductLookup = { id: record.id, name: record.name, type: record.itemKind === "SERVICO" ? "Serviço" : "Produto", salePrice: Number(record.salePrice ?? 0), costPrice: Number(record.costPrice ?? 0), profitMargin: Number(record.profitMargin ?? 0), stock: Number(record.stock ?? 0) };
+        setLookups((current) => current ? { ...current, products: [...current.products, product].sort((a,b) => a.name.localeCompare(b.name)) } : current);
+        if (quickProductItemKey !== null) chooseProductByKey(quickProductItemKey, product);
       }
       setQuickCreate(null);
     } catch (caught) { setQuickError(caught instanceof Error ? caught.message : "Não foi possível cadastrar."); }
@@ -256,15 +262,17 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
     setActiveProductSearch(item.key);
   }
 
-  function chooseProduct(item: DraftItem, product: ProductLookup) {
-    updateItem(item.key, {
+  function chooseProductByKey(key: number, product: ProductLookup) {
+    updateItem(key, {
       name: product.name,
       productId: product.id,
-      type: product.type ?? item.type,
-      unitPrice: numberToMoneyInput(product.salePrice),
+      type: product.type ?? "Produto",
+      unitPrice: numberToMoneyInput(product.costPrice > 0 && product.profitMargin > 0 ? salePriceFromProfit(product.costPrice, product.profitMargin) : product.salePrice),
     });
     setActiveProductSearch(undefined);
   }
+
+  function chooseProduct(item: DraftItem, product: ProductLookup) { chooseProductByKey(item.key, product); }
 
   function addItem() {
     setItems((current) => [...current, blankItem(nextKey)]);
@@ -275,8 +283,9 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
     event.preventDefault();
     setError("");
     if (!customerName.trim()) return setError("Informe o cliente.");
-    if (items.some((item) => !Number.isInteger(Number(item.quantity)) || Number(item.quantity) < 1)) return setError("A quantidade dos itens deve ser um número inteiro maior que zero.");
-    if (items.some((item) => !item.productId)) return setError("Selecione um produto ou serviço cadastrado em todos os itens.");
+    const selectedItems = items.filter((item) => item.productId || item.name.trim());
+    if (selectedItems.some((item) => !Number.isInteger(Number(item.quantity)) || Number(item.quantity) < 1)) return setError("A quantidade dos itens deve ser um número inteiro maior que zero.");
+    if (selectedItems.some((item) => !item.productId)) return setError("Selecione um produto ou serviço cadastrado nos itens preenchidos.");
     if (stockShortages.length && !window.confirm(`Existem produtos sem estoque suficiente:\n\n${stockShortages.map((item) => `${item.name}: disponível ${item.available.toLocaleString("pt-BR")}, necessário ${item.required.toLocaleString("pt-BR")}`).join("\n")}\n\nDeseja salvar o orçamento mesmo assim?`)) return;
 
     setSaving(true);
@@ -298,7 +307,7 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
           validUntil,
           discount: parseBrazilianNumber(discount),
           notes,
-          items: items.map((item) => ({
+          items: selectedItems.map((item) => ({
             productId: item.productId,
             name: item.name,
             type: item.type,
@@ -355,8 +364,9 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
               {items.map((item) => (
                 <div className="editor-row" key={item.key}>
                   <div className="product-picker">
-                    <input value={item.name} onFocus={() => setActiveProductSearch(item.key)} onChange={(event) => typeProductSearch(item, event.target.value)} onBlur={() => window.setTimeout(() => setActiveProductSearch((current) => current === item.key ? undefined : current), 150)} placeholder="Buscar por nome, SKU ou código" autoComplete="off" required />
+                    <input value={item.name} onFocus={() => setActiveProductSearch(item.key)} onChange={(event) => typeProductSearch(item, event.target.value)} onBlur={() => window.setTimeout(() => setActiveProductSearch((current) => current === item.key ? undefined : current), 150)} placeholder="Buscar por nome, SKU ou código" autoComplete="off" />
                     {activeProductSearch === item.key && <div className="product-search-results">
+                      <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => { setActiveProductSearch(undefined); openQuickCreate("product", item.key); }}><CirclePlus size={17} /><strong>Novo produto/serviço</strong></button>
                       {searchProducts(item.name).map((product) => <button type="button" className={product.stock !== undefined && product.stock <= 0 ? "out-of-stock" : ""} key={product.id} onMouseDown={(event) => event.preventDefault()} onClick={() => chooseProduct(item, product)}>
                         <span><strong>{product.name}</strong><small>{[product.type, product.sku ? `SKU ${product.sku}` : "", product.stock === undefined ? "" : `Estoque ${product.stock.toLocaleString("pt-BR")}`].filter(Boolean).join(" · ")}</small></span>
                         <b>{currency.format(product.salePrice)}</b>
@@ -367,10 +377,11 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
                   <select value={item.type} onChange={(event) => updateItem(item.key, { type: event.target.value })}><option>Produto</option><option>Serviço</option><option>Produto/Serviço</option></select>
                   <NumberStepper min={1} step={1} value={item.quantity} onChange={(value) => updateItem(item.key, { quantity: value })} label="Quantidade" required />
                   <MoneyInput value={item.unitPrice} onValueChange={(value) => updateItem(item.key, { unitPrice: value })} aria-label="Valor unitário" required />
-                  <button type="button" className="remove-item" onClick={() => setItems((current) => current.filter((entry) => entry.key !== item.key))} disabled={items.length === 1} aria-label="Remover item"><Trash2 size={18} /></button>
+                  <button type="button" className="remove-item" onClick={() => setItems((current) => current.filter((entry) => entry.key !== item.key))} aria-label="Remover item"><Trash2 size={18} /></button>
                 </div>
               ))}
-              <button type="button" className="add-item" onClick={addItem}><CirclePlus size={17} /> Adicionar item</button>
+              <button type="button" className="add-item" onClick={addItem}><CirclePlus size={17} /> Adicionar produto ou serviço</button>
+              {!items.length && <p>Você pode salvar o orçamento agora e adicionar produtos ou serviços depois.</p>}
               {stockShortages.length > 0 && <div className="budget-stock-warning" role="alert">
                 <AlertTriangle size={20} />
                 <div><strong>Produto sem estoque suficiente</strong><p>{stockShortages.map((item) => `${item.name}: disponível ${item.available.toLocaleString("pt-BR")} · necessário ${item.required.toLocaleString("pt-BR")}`).join(" | ")}</p><small>Será necessário confirmar explicitamente para salvar este orçamento e novamente antes de concluir a venda.</small></div>
@@ -392,11 +403,19 @@ export function OrderFormModal({ onClose, onSaved, initialOrder }: Props) {
         )}
       </section>
       {quickCreate && <div className="quick-create-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setQuickCreate(null)}>
-        <section className="quick-create-modal" role="dialog" aria-modal="true" aria-label={quickCreate === "customer" ? "Novo cliente" : "Novo veículo"}>
-          <header className="modal-header"><div><span className="section-kicker">CADASTRO RÁPIDO</span><h2>{quickCreate === "customer" ? "Novo cliente" : "Novo veículo"}</h2></div><button type="button" className="icon-button" onClick={() => setQuickCreate(null)} aria-label="Fechar"><X /></button></header>
+        <section className="quick-create-modal" role="dialog" aria-modal="true" aria-label={quickCreate === "customer" ? "Novo cliente" : quickCreate === "vehicle" ? "Novo veículo" : "Novo produto ou serviço"}>
+          <header className="modal-header"><div><span className="section-kicker">CADASTRO RÁPIDO</span><h2>{quickCreate === "customer" ? "Novo cliente" : quickCreate === "vehicle" ? "Novo veículo" : "Novo produto ou serviço"}</h2></div><button type="button" className="icon-button" onClick={() => setQuickCreate(null)} aria-label="Fechar"><X /></button></header>
           <form className="order-form" onSubmit={saveQuickCreate}><div className="form-grid registry-form-grid">
+            {quickCreate === "product" && <>
+              <label className="field span-2"><span>Nome *</span><input value={quickForm.name ?? ""} onChange={(event) => setQuickField("name", event.target.value)} required autoFocus /></label>
+              <label className="field"><span>Natureza</span><select value={quickForm.itemKind ?? "PRODUTO"} onChange={(event) => setQuickField("itemKind", event.target.value)}><option value="PRODUTO">Produto</option><option value="SERVICO">Serviço</option></select></label>
+              <label className="field"><span>Preço de custo</span><MoneyInput value={quickForm.costPrice ?? "0,00"} onValueChange={(value) => { const cost = parseBrazilianNumber(value); setQuickForm((current) => ({ ...current, costPrice: value, salePrice: current.profitMargin ? numberToMoneyInput(salePriceFromProfit(cost, parseBrazilianNumber(current.profitMargin))) : current.salePrice })); }} /></label>
+              <label className="field"><span>Lucro sobre custo (%)</span><input type="number" min="0" step="0.01" value={quickForm.profitMargin ?? ""} onChange={(event) => { const profit = event.target.value; setQuickForm((current) => ({ ...current, profitMargin: profit, salePrice: profit ? numberToMoneyInput(salePriceFromProfit(parseBrazilianNumber(current.costPrice), parseBrazilianNumber(profit))) : current.salePrice })); }} /></label>
+              <label className="field"><span>Preço de venda</span><MoneyInput value={quickForm.salePrice ?? "0,00"} onValueChange={(value) => setQuickForm((current) => { const cost = parseBrazilianNumber(current.costPrice); const profit = cost > 0 ? Math.round(((parseBrazilianNumber(value) / cost) - 1) * 10000) / 100 : 0; return { ...current, salePrice: value, profitMargin: cost > 0 && profit >= 0 ? String(profit) : "" }; })} /></label>
+              {quickForm.itemKind !== "SERVICO" && <label className="field"><span>Estoque atual</span><input type="number" min="0" step="0.001" value={quickForm.stock ?? "0"} onChange={(event) => setQuickField("stock", event.target.value)} /></label>}
+            </>}
             {quickCreate === "vehicle" && <label className="field span-2"><span>Cliente *</span><select value={quickForm.customerId ?? ""} onChange={(event) => setQuickField("customerId",event.target.value)} required><option value="">Selecione um cliente</option>{(lookups?.customers ?? []).map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></label>}
-            {(quickCreate === "customer" ? quickCustomerFields : quickVehicleFields).map((field, index) => <label className={`field ${field.key === "name" || field.key === "model" ? "span-2" : ""}`} key={field.key}><span>{field.label}{field.required ? " *" : ""}</span>
+            {(quickCreate === "customer" ? quickCustomerFields : quickCreate === "vehicle" ? quickVehicleFields : []).map((field, index) => <label className={`field ${field.key === "name" || field.key === "model" ? "span-2" : ""}`} key={field.key}><span>{field.label}{field.required ? " *" : ""}</span>
               {field.kind === "number" ? <NumberStepper value={quickForm[field.key] ?? ""} onChange={(value) => setQuickField(field.key,value)} label={field.label} /> : field.kind === "document" || field.kind === "zip" ? <div className="quick-lookup-field"><input value={quickForm[field.key] ?? ""} onChange={(event) => setQuickField(field.key,field.kind === "document" ? formatDocument(event.target.value) : event.target.value.replace(/\D/g, "").slice(0,8).replace(/^(\d{5})(\d)/,"$1-$2"))} inputMode="numeric" placeholder={field.kind === "document" ? "000.000.000-00" : "00000-000"} /><button type="button" onClick={() => void lookupQuick(field.kind === "document" ? "cnpj" : "cep")} disabled={Boolean(quickLookupLoading) || (quickForm[field.key] ?? "").replace(/\D/g, "").length !== (field.kind === "document" ? 14 : 8)}>{quickLookupLoading === (field.kind === "document" ? "cnpj" : "cep") ? <LoaderCircle className="spin" size={16} /> : <Search size={16} />} Buscar</button></div> : <input value={quickForm[field.key] ?? ""} onChange={(event) => setQuickField(field.key,field.key === "plate" || field.key === "state" || field.key === "registrationState" || field.key === "defaultPlate" ? event.target.value.toUpperCase() : event.target.value)} type={field.kind === "email" ? "email" : "text"} required={field.required} placeholder={field.placeholder} autoFocus={index === 0 && quickCreate === "customer"} />}
             </label>)}
           </div>{quickError && <p className="form-error">{quickError}</p>}<footer className="modal-actions"><button type="button" className="secondary-button" onClick={() => setQuickCreate(null)}>Voltar</button><button type="submit" className="primary-button" disabled={quickSaving}>{quickSaving ? "Salvando..." : "Cadastrar e selecionar"}</button></footer></form>

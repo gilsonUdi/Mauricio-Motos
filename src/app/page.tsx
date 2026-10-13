@@ -8,6 +8,6 @@ export const dynamic = "force-dynamic";
 export default async function Home() {
   const scope = await getTenantScope();
   if (!scope) redirect("/admin/empresas");
-  const data = await getDashboardData(scope.companyId, { limit: 100 });
+  const data = await getDashboardData(scope.companyId, { status: "ORCAMENTO", limit: 100 });
   return <AttendanceDashboard initialData={data} />;
 }

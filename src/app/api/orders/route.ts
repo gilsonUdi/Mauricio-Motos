@@ -67,8 +67,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Dados inválidos." }, { status: 400 });
   }
 
-  if (!Array.isArray(body.items) || !body.items.length) {
-    return NextResponse.json({ error: "Inclua ao menos um produto ou serviço." }, { status: 400 });
+  if (!Array.isArray(body.items)) {
+    return NextResponse.json({ error: "Lista de produtos e serviços inválida." }, { status: 400 });
   }
 
   const client = await pool.connect();

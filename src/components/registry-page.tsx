@@ -7,6 +7,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { MoneyInput } from "@/components/money-input";
 import type { RegistryEntity } from "@/lib/registries";
 import { numberToMoneyInput, parseBrazilianNumber } from "@/lib/numbers";
+import { salePriceFromProfit } from "@/lib/pricing";
 
 type RegistryRecord = { id: string; [key: string]: unknown };
 type CustomerOption = { id: string; name: string };
@@ -28,7 +29,7 @@ const number = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 3 });
 const productOnlyFields = new Set(["stock","minimumStock","leadTimeDays","stockLocation","ncm","cest","fiscalOrigin","defaultCfop","taxCode","taxRate"]);
 const serviceOnlyFields = new Set(["nbsCode","serviceCode"]);
 const productFieldSections: Record<string,string> = {
-  name:"Identificação",itemKind:"Identificação",type:"Identificação",sku:"Identificação",barcode:"Identificação",brand:"Identificação",supplierId:"Identificação",active:"Situação do cadastro",
+  name:"Identificação",itemKind:"Identificação",sku:"Identificação",barcode:"Identificação",brand:"Identificação",supplierId:"Identificação",active:"Situação do cadastro",
   costPrice:"Valores comerciais",salePrice:"Valores comerciais",profitMargin:"Valores comerciais",
   stock:"Estoque e reposição",minimumStock:"Estoque e reposição",leadTimeDays:"Estoque e reposição",stockLocation:"Estoque e reposição",
   ncm:"Tributação vigente",cest:"Tributação vigente",fiscalOrigin:"Tributação vigente",commercialUnit:"Tributação vigente",defaultCfop:"Tributação vigente",taxCode:"Tributação vigente",taxRate:"Tributação vigente",
@@ -82,7 +83,6 @@ const configs: Record<RegistryEntity, {
       { key: "engineDisplacement", label: "Cilindrada" },
       { key: "registrationCity", label: "Município de registro" },
       { key: "registrationState", label: "UF de registro" },
-      { key: "mileage", label: "Quilometragem", type: "number", step: "1" },
     ],
     columns: [
       { key: "plate", label: "Placa" }, { key: "model", label: "Modelo" },
@@ -95,14 +95,13 @@ const configs: Record<RegistryEntity, {
     fields: [
       { key: "name", label: "Nome", required: true },
       { key: "itemKind", label: "Natureza", type: "select", options: [{value:"PRODUTO",label:"Produto"},{value:"SERVICO",label:"Serviço"}] },
-      { key: "type", label: "Categoria/Tipo", placeholder: "Ex.: Peça, óleo ou mão de obra" },
       { key: "sku", label: "Código interno (SKU)" },
       { key: "barcode", label: "Código de barras" },
       { key: "brand", label: "Marca" },
       { key: "supplierId", label: "Fornecedor principal", type: "supplier" },
       { key: "costPrice", label: "Preço de custo", type: "money" },
       { key: "salePrice", label: "Preço de venda", type: "money" },
-      { key: "profitMargin", label: "Margem (%)", type: "number", step: "0.01", placeholder: "Calculada se ficar vazia" },
+      { key: "profitMargin", label: "Lucro sobre custo (%)", type: "number", step: "0.01", placeholder: "Ex.: 30" },
       { key: "stock", label: "Estoque atual", type: "number", step: "0.001" },
       { key: "minimumStock", label: "Estoque mínimo", type: "number", step: "0.001" },
       { key: "leadTimeDays", label: "Prazo de reposição (dias)", type: "number", step: "1" },
@@ -208,6 +207,10 @@ export function RegistryPage({ entity }: { entity: RegistryEntity }) {
   const [notice, setNotice] = useState("");
   const [mobileMenu, setMobileMenu] = useState(false);
   const [lookupLoading,setLookupLoading]=useState<"cep"|"cnpj">();
+  const [creatingSupplier, setCreatingSupplier] = useState(false);
+  const [supplierName, setSupplierName] = useState("");
+  const [supplierSaving, setSupplierSaving] = useState(false);
+  const [supplierError, setSupplierError] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -271,6 +274,37 @@ export function RegistryPage({ entity }: { entity: RegistryEntity }) {
     finally{setLookupLoading(undefined);}
   }
 
+  async function saveSupplier(event: FormEvent) {
+    event.preventDefault();
+    setSupplierSaving(true); setSupplierError("");
+    try {
+      const response = await fetch("/api/registries/suppliers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: supplierName.trim(), active: true }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "Não foi possível cadastrar o fornecedor.");
+      setSuppliers((current) => [...current, { id: payload.id, name: payload.name }].sort((a,b) => a.name.localeCompare(b.name)));
+      setForm((current) => ({ ...current, supplierId: payload.id }));
+      setCreatingSupplier(false); setSupplierName("");
+    } catch (caught) { setSupplierError(caught instanceof Error ? caught.message : "Não foi possível cadastrar o fornecedor."); }
+    finally { setSupplierSaving(false); }
+  }
+
+  function changeProductPriceField(key: string, value: string) {
+    setForm((current) => {
+      const next = { ...current, [key]: value };
+      if (key === "profitMargin" || key === "costPrice") {
+        const margin = Number(String(next.profitMargin).replace(",", "."));
+        if (String(next.profitMargin).trim() && Number.isFinite(margin)) next.salePrice = numberToMoneyInput(salePriceFromProfit(parseBrazilianNumber(next.costPrice), margin));
+      } else if (key === "salePrice") {
+        const cost = parseBrazilianNumber(next.costPrice);
+        if (cost > 0) {
+          const profit = Math.round(((parseBrazilianNumber(value) / cost) - 1) * 10000) / 100;
+          next.profitMargin = profit >= 0 ? String(profit) : "";
+        }
+      }
+      return next;
+    });
+  }
+
   return (
     <div className="app-shell">
       <AppSidebar active={entity} />
@@ -321,15 +355,15 @@ export function RegistryPage({ entity }: { entity: RegistryEntity }) {
               ) : field.type === "customer" ? (
                 <label className="field span-2" key={field.key}><span>{field.label}</span><select value={String(form[field.key] ?? "")} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))}><option value="">Sem cliente vinculado</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></label>
               ) : field.type === "supplier" ? (
-                <label className="field span-2" key={field.key}><span>{field.label}</span><select value={String(form[field.key] ?? "")} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))}><option value="">Sem fornecedor vinculado</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></label>
+                <div className="field span-2" key={field.key}><span>{field.label}</span><div className="registry-supplier-picker"><select value={String(form[field.key] ?? "")} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))}><option value="">Sem fornecedor vinculado</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select><button type="button" className="secondary-button" onClick={() => { setSupplierError(""); setCreatingSupplier(true); }}><Plus size={16} /> Novo</button></div></div>
               ) : field.type === "select" ? (
                 <label className="field" key={field.key}><span>{field.label}{field.required ? " *" : ""}</span><select required={field.required} value={String(form[field.key] ?? field.options?.[0]?.value ?? "")} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))}>{field.options?.map((option)=><option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
               ) : field.type === "money" ? (
-                <label className="field" key={field.key}><span>{field.label}{field.required ? " *" : ""}</span><MoneyInput required={field.required} value={String(form[field.key] ?? "")} onValueChange={(value) => setForm((current) => ({ ...current, [field.key]: value }))} /></label>
+                <label className="field" key={field.key}><span>{field.label}{field.required ? " *" : ""}</span><MoneyInput required={field.required} value={String(form[field.key] ?? "")} onValueChange={(value) => entity === "products" ? changeProductPriceField(field.key, value) : setForm((current) => ({ ...current, [field.key]: value }))} /></label>
               ) : field.type === "document" || field.type === "zip" ? (
                 <label className="field lookup-field" key={field.key}><span>{field.label}{field.required ? " *" : ""}</span><div><input inputMode="numeric" required={field.required} value={String(form[field.key] ?? "")} placeholder={field.type==="zip"?"00000-000":"Somente números"} onChange={(event)=>setForm(current=>({...current,[field.key]:event.target.value}))}/><button type="button" onClick={()=>void lookup(field.type==="zip"?"cep":"cnpj")} disabled={lookupLoading!==undefined||(field.type==="zip"?String(form[field.key]??"").replace(/\D/g,"").length!==8:String(form[field.key]??"").replace(/\D/g,"").length!==14)}>{lookupLoading===(field.type==="zip"?"cep":"cnpj")?<LoaderCircle className="spin" size={15}/>:<Search size={15}/>} {field.type==="zip"?"Buscar CEP":"Buscar CNPJ"}</button></div></label>
               ) : (
-                <label className={`field ${field.key === "name" ? "span-2" : ""}`} key={field.key}><span>{field.label}{field.required ? " *" : ""}</span><input type={field.type ?? "text"} min={field.type === "number" ? "0" : undefined} max={field.type === "number" && field.key.toLocaleLowerCase("pt-BR").includes("rate") ? "100" : undefined} step={field.step} required={field.required} value={String(form[field.key] ?? "")} placeholder={field.placeholder} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))} /></label>
+                <label className={`field ${field.key === "name" ? "span-2" : ""}`} key={field.key}><span>{field.label}{field.required ? " *" : ""}</span><input type={field.type ?? "text"} min={field.type === "number" ? "0" : undefined} max={field.type === "number" && field.key.toLocaleLowerCase("pt-BR").includes("rate") ? "100" : undefined} step={field.step} required={field.required} value={String(form[field.key] ?? "")} placeholder={field.placeholder} onChange={(event) => entity === "products" && field.key === "profitMargin" ? changeProductPriceField(field.key, event.target.value) : setForm((current) => ({ ...current, [field.key]: event.target.value }))} /></label>
               )}</div>)}
             </div>
             {error && <p className="form-error">{error}</p>}
@@ -337,6 +371,7 @@ export function RegistryPage({ entity }: { entity: RegistryEntity }) {
           </form>
         </section>
       </div>}
+      {creatingSupplier && <div className="quick-create-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setCreatingSupplier(false)}><section className="quick-create-modal" role="dialog" aria-modal="true" aria-label="Novo fornecedor"><header className="modal-header"><div><span className="section-kicker">CADASTRO RÁPIDO</span><h2>Novo fornecedor</h2></div><button type="button" className="icon-button" onClick={() => setCreatingSupplier(false)} aria-label="Fechar"><X /></button></header><form className="order-form" onSubmit={saveSupplier}><label className="field"><span>Nome do fornecedor *</span><input value={supplierName} onChange={(event) => setSupplierName(event.target.value)} required autoFocus /></label>{supplierError && <p className="form-error">{supplierError}</p>}<footer className="modal-actions"><button type="button" className="secondary-button" onClick={() => setCreatingSupplier(false)}>Voltar</button><button type="submit" className="primary-button" disabled={supplierSaving}>{supplierSaving ? "Salvando..." : "Cadastrar e selecionar"}</button></footer></form></section></div>}
       {notice && <button className="toast" onClick={() => setNotice("")}>{notice}</button>}
     </div>
   );

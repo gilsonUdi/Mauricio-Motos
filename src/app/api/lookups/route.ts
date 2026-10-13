@@ -14,7 +14,7 @@ export async function GET() {
     const [customers, vehicles, products, mechanics] = await Promise.all([
       pool.query(`SELECT id::text,name,phone,document FROM app_live.customers WHERE company_id=$1::uuid ORDER BY name`,[scope.companyId]),
       pool.query(`SELECT id::text,customer_id::text,plate,description AS model,mileage FROM app_live.vehicles WHERE company_id=$1::uuid ORDER BY plate`,[scope.companyId]),
-      pool.query(`SELECT id::text,name,CASE WHEN item_kind='SERVICO' THEN 'Serviço' ELSE COALESCE(type,'Produto') END AS type,sku,barcode,COALESCE(current_stock,0) AS current_stock,COALESCE(sale_price,0) AS sale_price FROM app_live.products WHERE active AND company_id=$1::uuid ORDER BY name`,[scope.companyId]),
+      pool.query(`SELECT id::text,name,CASE WHEN item_kind='SERVICO' THEN 'Serviço' ELSE COALESCE(type,'Produto') END AS type,sku,barcode,COALESCE(current_stock,0) AS current_stock,COALESCE(cost_price,0) AS cost_price,COALESCE(profit_margin_percent,0) AS profit_margin_percent,COALESCE(sale_price,0) AS sale_price FROM app_live.products WHERE active AND company_id=$1::uuid ORDER BY name`,[scope.companyId]),
       pool.query(`SELECT id::text,name FROM app_live.mechanics WHERE active AND company_id=$1::uuid ORDER BY name`,[scope.companyId]),
     ]);
 
@@ -40,6 +40,8 @@ export async function GET() {
         barcode: row.barcode ?? undefined,
         stock: Number(row.current_stock ?? 0),
         salePrice: Number(row.sale_price ?? 0),
+        costPrice: Number(row.cost_price ?? 0),
+        profitMargin: Number(row.profit_margin_percent ?? 0),
       })),
       mechanics: mechanics.rows.map((row) => ({ id: row.id, name: row.name })),
     };

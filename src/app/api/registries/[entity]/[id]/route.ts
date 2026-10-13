@@ -60,12 +60,12 @@ export async function PATCH(request: Request, context: Context) {
       );
     } else if (entity === "vehicles") {
       updated = await client.query(
-        `UPDATE app_live.vehicles SET customer_id=$2::uuid,plate=$3,normalized_plate=$4,description=$5,brand=$6,mileage=$7,
+        `UPDATE app_live.vehicles SET customer_id=$2::uuid,plate=$3,normalized_plate=$4,description=$5,brand=$6,mileage=COALESCE($7,mileage),
          manufacture_year=$8::integer,model_year=$9::integer,color=$10,fuel=$11,engine_displacement=$12,registration_city=$13,
          registration_state=$14,plate_lookup_at=COALESCE($15::timestamptz,plate_lookup_at)
          WHERE id=$1::uuid AND company_id=$16::uuid RETURNING *`,
         [id,customerId,plate,plate!.replace(/[^A-Z0-9]/g, ""),cleanText(body.model),cleanText(body.brand),
-          Math.max(0,Math.trunc(numberValue(body.mileage))),cleanText(body.manufactureYear),cleanText(body.modelYear),cleanText(body.color),
+          body.mileage === "" || body.mileage == null ? null : Math.max(0,Math.trunc(numberValue(body.mileage))),cleanText(body.manufactureYear),cleanText(body.modelYear),cleanText(body.color),
           cleanText(body.fuel),cleanText(body.engineDisplacement),cleanText(body.registrationCity),cleanText(body.registrationState)?.toUpperCase(),
           cleanText(body.plateLookupAt),scope.companyId],
       );

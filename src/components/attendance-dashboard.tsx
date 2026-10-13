@@ -1,6 +1,6 @@
 "use client";
 
-import { Bike, CheckCircle2, ChevronDown, ClipboardList, ExternalLink, FileText, History, LoaderCircle, Pencil, Plus, RotateCcw, Search, XCircle } from "lucide-react";
+import { Bike, CheckCircle2, ChevronDown, ClipboardList, ExternalLink, History, LoaderCircle, Pencil, Plus, RotateCcw, Search, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -9,13 +9,13 @@ import { SaleFinanceModal } from "@/components/sale-finance-modal";
 import type { DashboardData, OrderStatus, SaleFinancialConfig, StockShortage, WorkOrder } from "@/lib/types";
 
 type Filter = "TODOS" | "ORCAMENTO" | "PEDIDO" | "VENDA_REALIZADA";
-type HistoryEntry = { id: string; number: string; status: OrderStatus; budgetDate?: string; saleDate?: string; plate?: string; model?: string; notes?: string; total: number; items: Array<{ name: string; quantity: number }> };
+type HistoryEntry = { id: string; number: string; status: OrderStatus; budgetDate?: string; saleDate?: string; plate?: string; model?: string; mileage?: number; notes?: string; total: number; items: Array<{ name: string; quantity: number }> };
 const pageSize = 100;
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const labels: Record<OrderStatus, string> = { ORCAMENTO: "Orçamento", PEDIDO: "Pedido", VENDA_REALIZADA: "Concluído", CANCELADO: "Cancelado" };
 const filters: Array<{ value: Filter; label: string }> = [
   { value: "TODOS", label: "Todos" }, { value: "ORCAMENTO", label: "Orçamentos" },
-  { value: "PEDIDO", label: "Pedidos" }, { value: "VENDA_REALIZADA", label: "Concluídos" },
+  { value: "VENDA_REALIZADA", label: "Concluídos" },
 ];
 
 function formatDate(value?: string) {
@@ -29,7 +29,7 @@ function IconAction({ label, tone = "", disabled, onClick, children }: { label: 
 
 export function AttendanceDashboard({ initialData }: { initialData: DashboardData }) {
   const [orders, setOrders] = useState(initialData.orders);
-  const [filter, setFilter] = useState<Filter>("TODOS");
+  const [filter, setFilter] = useState<Filter>("ORCAMENTO");
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [hasMore, setHasMore] = useState(initialData.connected && initialData.orders.length >= pageSize);
@@ -48,15 +48,14 @@ export function AttendanceDashboard({ initialData }: { initialData: DashboardDat
   const [historyError, setHistoryError] = useState("");
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setSearch(searchInput.trim()), 250);
+    const timer = window.setTimeout(() => { setSearch(searchInput.trim()); if (initialData.connected) setLoading(true); }, 250);
     return () => window.clearTimeout(timer);
-  }, [searchInput]);
+  }, [searchInput, initialData.connected]);
 
   useEffect(() => {
     if (!initialData.connected) return;
     const controller = new AbortController();
     const params = new URLSearchParams({ search, status: filter, offset: "0" });
-    setLoading(true);
     fetch(`/api/orders?${params}`, { signal: controller.signal })
       .then(async (response) => {
         const payload = await response.json();
@@ -75,27 +74,25 @@ export function AttendanceDashboard({ initialData }: { initialData: DashboardDat
     (filter === "TODOS" || order.status === filter) && `${order.number} ${order.customer} ${order.plate ?? ""} ${order.model ?? ""}`.toLocaleLowerCase("pt-BR").includes(search.toLocaleLowerCase("pt-BR")),
   ), [filter, initialData.connected, orders, search]);
   const expanded = visible.find((order) => order.id === expandedId);
+  const historyEntries = expanded && (!expanded.customerId || !initialData.connected)
+    ? orders.filter((order) => order.customer === expanded.customer && order.id !== expanded.id)
+    : history;
+  const expandedCustomerId = expanded?.customerId;
+  const expandedOrderId = expanded?.id;
 
   useEffect(() => {
-    if (!expanded || expandedTab !== "history") return;
-    if (!expanded.customerId || !initialData.connected) {
-      setHistory(orders.filter((order) => order.customer === expanded.customer && order.id !== expanded.id).map((order) => ({ ...order, items: order.items })));
-      setHistoryError("");
-      return;
-    }
+    if (!expandedOrderId || expandedTab !== "history" || !expandedCustomerId || !initialData.connected) return;
     const controller = new AbortController();
-    setHistoryLoading(true);
-    setHistoryError("");
-    fetch(`/api/orders/history?customerId=${encodeURIComponent(expanded.customerId)}&includeCanceled=true`, { signal: controller.signal })
+    fetch(`/api/orders/history?customerId=${encodeURIComponent(expandedCustomerId)}&includeCanceled=true`, { signal: controller.signal })
       .then(async (response) => {
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.error ?? "Não foi possível carregar o histórico.");
-        setHistory((payload.orders ?? []).filter((entry: HistoryEntry) => entry.id !== expanded.id));
+        setHistory((payload.orders ?? []).filter((entry: HistoryEntry) => entry.id !== expandedOrderId));
       })
       .catch((error) => { if (error?.name !== "AbortError") setHistoryError(error instanceof Error ? error.message : "Não foi possível carregar o histórico."); })
       .finally(() => { if (!controller.signal.aborted) setHistoryLoading(false); });
     return () => controller.abort();
-  }, [expanded?.id, expanded?.customerId, expanded?.customer, expandedTab, initialData.connected]);
+  }, [expandedOrderId, expandedCustomerId, expandedTab, initialData.connected]);
 
   async function loadMore() {
     if (loadingMore || !hasMore || !initialData.connected) return;
@@ -114,7 +111,7 @@ export function AttendanceDashboard({ initialData }: { initialData: DashboardDat
 
   function saved(order: WorkOrder) {
     setOrders((current) => [order, ...current.filter((entry) => entry.id !== order.id)]);
-    setFilter("TODOS");
+    setFilter("ORCAMENTO");
     setSearchInput("");
     setSearch("");
     setExpandedId(order.id);
@@ -173,6 +170,9 @@ export function AttendanceDashboard({ initialData }: { initialData: DashboardDat
   }
 
   function openHistory(order: WorkOrder) {
+    setHistory([]);
+    setHistoryLoading(Boolean(order.customerId && initialData.connected));
+    setHistoryError("");
     setExpandedId(order.id);
     setExpandedTab("history");
   }
@@ -181,14 +181,14 @@ export function AttendanceDashboard({ initialData }: { initialData: DashboardDat
     <AppSidebar active="atendimento" />
     <main className="workspace attendance-workspace">
       <header className="attendance-page-header">
-        <div><p className="eyebrow">OFICINA</p><h1>Atendimento</h1><p>Orçamentos e pedidos em uma fila única, com as ações ao alcance de um clique.</p></div>
+        <div><p className="eyebrow">OFICINA</p><h1>Atendimento</h1><p>Orçamentos em aberto, independentemente da validade, com as ações ao alcance de um clique.</p></div>
         <button type="button" className="primary-button" onClick={() => setCreating(true)}><Plus size={18} /> Novo orçamento</button>
       </header>
       {!initialData.connected && <p className="demo-pill">Prévia com dados de demonstração</p>}
       <section className="attendance-board" aria-label="Fila de atendimentos">
         <div className="attendance-toolbar">
           <label className="attendance-search"><Search size={18} aria-hidden="true" /><input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="Procurar cliente, orçamento ou placa" aria-label="Procurar cliente, orçamento ou placa" /></label>
-          <div className="attendance-filters" role="group" aria-label="Filtrar por situação">{filters.map((entry) => <button type="button" key={entry.value} className={filter === entry.value ? "active" : ""} aria-pressed={filter === entry.value} onClick={() => { setFilter(entry.value); setExpandedId(""); }}>{entry.label}</button>)}</div>
+          <div className="attendance-filters" role="group" aria-label="Filtrar por situação">{filters.map((entry) => <button type="button" key={entry.value} className={filter === entry.value ? "active" : ""} aria-pressed={filter === entry.value} onClick={() => { setFilter(entry.value); setExpandedId(""); if (initialData.connected) setLoading(true); }}>{entry.label}</button>)}</div>
         </div>
         <div className="attendance-list-heading"><span>{loading ? "Buscando atendimentos..." : `${visible.length} atendimento(s) nesta lista`}</span><span>Ações rápidas</span></div>
         <div className="attendance-list">
@@ -222,8 +222,8 @@ export function AttendanceDashboard({ initialData }: { initialData: DashboardDat
             {expandedId === order.id && <div className="attendance-expanded">
               <div className="attendance-expanded-header"><strong>{expandedTab === "history" ? `Histórico de ${order.customer}` : `Atendimento #${order.number}`}</strong><button type="button" onClick={() => setExpandedId("")} aria-label="Fechar detalhes"><XCircle size={18} /></button></div>
               {expandedTab === "history" ? <div className="attendance-history">
-                {historyLoading ? <p>Carregando histórico...</p> : historyError ? <p role="alert">{historyError}</p> : !history.length ? <p>Nenhum outro atendimento ou orçamento encontrado para este cliente.</p> : history.map((entry) => <article key={entry.id}>
-                  <div><strong>#{entry.number} · {labels[entry.status]}</strong><span>{formatDate(entry.saleDate ?? entry.budgetDate)} · {entry.plate || entry.model || "Sem veículo"} · {currency.format(entry.total)}</span></div>
+                {historyLoading && initialData.connected ? <p>Carregando histórico...</p> : historyError ? <p role="alert">{historyError}</p> : !historyEntries.length ? <p>Nenhum outro atendimento ou orçamento encontrado para este cliente.</p> : historyEntries.map((entry) => <article key={entry.id}>
+                  <div><strong>#{entry.number} · {labels[entry.status]}</strong><span>{formatDate(entry.saleDate ?? entry.budgetDate)} · {entry.plate || entry.model || "Sem veículo"} · {entry.mileage == null ? "Km não informada" : `${new Intl.NumberFormat("pt-BR").format(entry.mileage)} km`} · {currency.format(entry.total)}</span></div>
                   <p>{entry.items.map((item) => `${item.quantity}× ${item.name}`).join(" · ") || "Sem itens registrados"}</p>{entry.notes && <p><b>Observações:</b> {entry.notes}</p>}
                 </article>)}
               </div> : <div className="attendance-detail-grid">

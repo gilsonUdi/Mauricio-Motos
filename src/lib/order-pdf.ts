@@ -1,4 +1,6 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { WorkOrder } from "@/lib/types";
 
 const A4 = { width: 595.28, height: 841.89 };
@@ -95,17 +97,17 @@ export async function createOrderPdf({ order, companyName = "Maurício Motos", g
 
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const logo = await pdf.embedPng(await readFile(join(process.cwd(), "public", "mauricio-motos-logo.png")));
   let page = pdf.addPage([A4.width, A4.height]);
   let y = A4.height - margin;
 
   const drawHeader = () => {
-    page.drawCircle({ x: margin + 18, y: y - 18, size: 18, color: colors.accent });
-    page.drawText("MM", { x: margin + 7.5, y: y - 22.5, font: bold, size: 11, color: colors.white });
-    page.drawText(safeText(companyName), { x: margin + 48, y: y - 11, font: bold, size: 17, color: colors.ink });
-    page.drawText("OFICINA E SERVIÇOS", { x: margin + 48, y: y - 29, font: bold, size: 7.5, color: colors.accent });
+    page.drawImage(logo, { x: margin, y: y - 74, width: 79, height: 74 });
+    page.drawText(safeText(companyName), { x: margin + 90, y: y - 25, font: bold, size: 17, color: colors.ink });
+    page.drawText("OFICINA E SERVIÇOS", { x: margin + 90, y: y - 43, font: bold, size: 7.5, color: colors.accent });
     drawRight(page, "ORÇAMENTO", A4.width - margin, y - 9, bold, 16);
     drawRight(page, `Nº ${order.number}${(order.revisionNumber ?? 1) > 1 ? ` · Revisão ${order.revisionNumber}` : ""}`, A4.width - margin, y - 28, regular, 9, colors.muted);
-    y -= 58;
+    y -= 86;
     page.drawLine({ start: { x: margin, y }, end: { x: A4.width - margin, y }, thickness: 1.2, color: colors.accent });
     y -= 20;
   };
@@ -129,15 +131,15 @@ export async function createOrderPdf({ order, companyName = "Maurício Motos", g
   drawHeader();
 
   const infoTop = y;
-  page.drawRectangle({ x: margin, y: infoTop - 78, width: A4.width - margin * 2, height: 78, color: colors.soft, borderColor: colors.line, borderWidth: 0.7 });
+  page.drawRectangle({ x: margin, y: infoTop - 95, width: A4.width - margin * 2, height: 95, color: colors.soft, borderColor: colors.line, borderWidth: 0.7 });
   drawLabelValue("Cliente", order.customer, margin + 12, 226, infoTop - 16);
   drawLabelValue("Telefone", order.phone || "Não informado", margin + 257, 110, infoTop - 16);
   drawLabelValue("Emissão / validade", `${formatDate(order.budgetDate)} / ${formatDate(order.validUntil)}`, margin + 385, 103, infoTop - 16);
-  drawLabelValue("Veículo", order.model || "Não informado", margin + 12, 175, infoTop - 50);
-  drawLabelValue("Placa", order.plate || "Não informada", margin + 205, 75, infoTop - 50);
-  drawLabelValue("Quilometragem", order.mileage ? `${number.format(order.mileage)} km` : "Não informada", margin + 300, 85, infoTop - 50);
-  drawLabelValue("Mecânico", order.mechanic || "Não definido", margin + 405, 94, infoTop - 50);
-  y = infoTop - 103;
+  drawLabelValue("Veículo", order.model || "Não informado", margin + 12, 175, infoTop - 63);
+  drawLabelValue("Placa", order.plate || "Não informada", margin + 205, 75, infoTop - 63);
+  drawLabelValue("Quilometragem", order.mileage ? `${number.format(order.mileage)} km` : "Não informada", margin + 300, 85, infoTop - 63);
+  drawLabelValue("Mecânico", order.mechanic || "Não definido", margin + 405, 94, infoTop - 63);
+  y = infoTop - 120;
 
   page.drawText("PRODUTOS E SERVIÇOS", { x: margin, y, font: bold, size: 10.5, color: colors.ink });
   y -= 18;
@@ -154,6 +156,12 @@ export async function createOrderPdf({ order, companyName = "Maurício Motos", g
     y -= 23;
   };
   drawTableHeader();
+
+  if (!order.items.length) {
+    page.drawRectangle({ x: tableX, y: y - 35, width: tableWidth, height: 35, color: colors.white, borderColor: colors.line, borderWidth: 0.5 });
+    page.drawText("Produtos e serviços a definir", { x: tableX + 9, y: y - 21, font: regular, size: 9, color: colors.muted });
+    y -= 35;
+  }
 
   for (const item of order.items) {
     const nameLines = wrapText(item.name, bold, 9, widths.description - 18);

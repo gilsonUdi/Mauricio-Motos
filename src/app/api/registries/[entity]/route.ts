@@ -89,7 +89,7 @@ export async function POST(request: Request, context: Context) {
           engine_displacement,registration_city,registration_state,plate_lookup_at)
          VALUES ($1::uuid,$2::uuid,$3,$4,$5,$6,$7,$8::integer,$9::integer,$10,$11,$12,$13,$14,$15::timestamptz) RETURNING *`,
         [scope.companyId,customerId,plate,plate!.replace(/[^A-Z0-9]/g, ""),cleanText(body.model),cleanText(body.brand),
-          Math.max(0,Math.trunc(numberValue(body.mileage))),cleanText(body.manufactureYear),cleanText(body.modelYear),cleanText(body.color),
+          body.mileage === "" || body.mileage == null ? null : Math.max(0,Math.trunc(numberValue(body.mileage))),cleanText(body.manufactureYear),cleanText(body.modelYear),cleanText(body.color),
           cleanText(body.fuel),cleanText(body.engineDisplacement),cleanText(body.registrationCity),cleanText(body.registrationState)?.toUpperCase(),
           cleanText(body.plateLookupAt)],
       );

@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef } from "react";
 import {
@@ -64,7 +65,7 @@ export function AppSidebar({ active }: { active: string }) {
   async function logout() { await fetch("/api/auth/logout", { method: "POST" }); window.location.assign("/login"); }
   return (
     <aside className="sidebar">
-      <Link className="brand-mark" href="/" aria-label="Ir para o início"><Wrench size={25} /></Link>
+      <Link className="brand-mark" href="/" aria-label="Ir para o início"><Image src="/mauricio-motos-logo.png" alt="Maurício Motos" width={160} height={149} priority /></Link>
       {enabled && user?.companyName && <span className="tenant-name" title={user.companyName}>{user.companyName}</span>}
       <nav ref={navRef} aria-label="Navegação principal">
         {visibleEntries.map(({ id, label, icon: Icon, href }) => href ? (

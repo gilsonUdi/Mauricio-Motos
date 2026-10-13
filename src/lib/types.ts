@@ -105,6 +105,8 @@ export type ProductLookup = {
   barcode?: string;
   stock?: number;
   salePrice: number;
+  costPrice: number;
+  profitMargin: number;
 };
 
 export type MechanicLookup = {

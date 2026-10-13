@@ -16,7 +16,7 @@ export async function GET(request: Request) {
   try {
     const result = await pool.query(`
       SELECT o.id::text,o.order_number AS number,o.status,o.budget_date::text AS budget_date,
-        o.sale_date::text AS sale_date,o.vehicle_plate AS plate,o.vehicle_model AS model,
+        o.sale_date::text AS sale_date,o.vehicle_plate AS plate,o.vehicle_model AS model,o.mileage,
         o.notes,o.total_value AS total,
         COALESCE(jsonb_agg(jsonb_build_object('name',i.item_name,'type',i.item_type,'quantity',i.quantity)
           ORDER BY i.created_at) FILTER (WHERE i.id IS NOT NULL),'[]'::jsonb) AS items
@@ -28,7 +28,7 @@ export async function GET(request: Request) {
     `, [scope.companyId,customerId,includeCanceled]);
     return NextResponse.json({ orders: result.rows.map((row) => ({
       id: row.id, number: row.number, status: row.status, budgetDate: row.budget_date,
-      saleDate: row.sale_date, plate: row.plate, model: row.model, notes: row.notes,
+      saleDate: row.sale_date, plate: row.plate, model: row.model, mileage: row.mileage == null ? undefined : Number(row.mileage), notes: row.notes,
       total: Number(row.total), items: row.items,
     })) });
   } catch (error) {
